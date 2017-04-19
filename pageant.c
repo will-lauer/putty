@@ -409,6 +409,7 @@ void pageant_handle_msg(BinarySink *bs,
 	}
 	break;
       case SSH2_AGENTC_ADD_IDENTITY:
+      case SSH2_AGENTC_ADD_ID_CONSTRAINED:
 	/*
 	 * Add to the list and return SSH_AGENT_SUCCESS, or
 	 * SSH_AGENT_FAILURE if the key was malformed.

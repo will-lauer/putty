@@ -410,6 +410,30 @@ struct RSAKey {
     ssh_key sshk;
 };
 
+struct RSACertKey {
+    ptrlen certificate;
+    char* nonce;
+    Bignum modulus;
+    Bignum exponent;
+    uint64_t serial;
+    uint32_t type;
+    char * keyid;
+    char * principals;
+    uint64_t valid_after;
+    uint64_t valid_before;
+    char * options;
+    char * extensions;
+    char * reserved;
+    ssh_key* sigkey;
+    char * signature;
+    Bignum private_exponent;
+    Bignum iqmp;
+    Bignum p;
+    Bignum q;
+    char *comment;
+    ssh_key sshk;
+};
+
 struct dss_key {
     Bignum p, q, g, y, x;
     ssh_key sshk;
@@ -872,6 +896,7 @@ extern const ssh_keyalg ssh_ecdsa_ed25519;
 extern const ssh_keyalg ssh_ecdsa_nistp256;
 extern const ssh_keyalg ssh_ecdsa_nistp384;
 extern const ssh_keyalg ssh_ecdsa_nistp521;
+extern const ssh_keyalg ssh_cert_rsa;
 extern const struct ssh2_macalg ssh_hmac_md5;
 extern const struct ssh2_macalg ssh_hmac_sha1;
 extern const struct ssh2_macalg ssh_hmac_sha1_buggy;
@@ -1402,6 +1427,7 @@ enum {
 #define SSH2_AGENTC_ADD_IDENTITY                17
 #define SSH2_AGENTC_REMOVE_IDENTITY             18
 #define SSH2_AGENTC_REMOVE_ALL_IDENTITIES       19
+#define SSH2_AGENTC_ADD_ID_CONSTRAINED          25
 
 /*
  * Assorted other SSH-related enumerations.

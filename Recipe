@@ -251,7 +251,7 @@ NONSSH   = telnet raw rlogin ldisc pinger
 
 # SSH back end (putty, plink, pscp, psftp).
 SSHCOMMON = sshcommon sshrand
-         + sshverstring sshcrc sshdes sshmd5 sshrsa sshsha sshblowf
+         + sshverstring sshcrc sshdes sshmd5 sshrsa sshrsacert sshsha sshblowf
          + sshdh sshcrcda sshpubk sshzlib sshdss ssharcf
          + sshaes sshccp sshsh256 sshsh512 sshbn sshmac marshal nullplug
          + sshgssc pgssapi sshecc wildcard ssh1censor ssh2censor ssh2bpp
@@ -325,12 +325,12 @@ pscp     : [C] pscp winsftp wincons WINSSH BE_SSH SFTP wildcard WINMISC
 psftp    : [C] psftp winsftp wincons WINSSH BE_SSH SFTP wildcard WINMISC
          + psftp.res winnojmp LIBS
 
-pageant  : [G] winpgnt pageant sshrsa sshpubk sshdes sshbn sshmd5 version
+pageant  : [G] winpgnt pageant sshrsa sshrsacert sshpubk sshdes sshbn sshmd5 version
 	 + tree234 MISC sshaes sshsha winsecur winpgntc aqsync sshdss sshsh256
 	 + sshsh512 winutils sshecc winmisc winhelp conf pageant.res LIBS
 
 puttygen : [G] winpgen sshrsag sshdssg sshprime sshdes sshbn sshmd5 version
-         + sshrand winnoise sshsha winstore MISC winctrls sshrsa sshdss winmisc
+         + sshrand winnoise sshsha winstore MISC winctrls sshrsa sshrsacert sshdss winmisc
          + sshpubk sshaes sshsh256 sshsh512 IMPORT winutils puttygen.res
          + tree234 notiming winhelp winnojmp CONF LIBS wintime sshecc
          + sshecdsag winsecur
@@ -358,7 +358,7 @@ cgtest   : [UT] cgtest PUTTYGEN_UNIX
 pscp     : [U] pscp uxsftp uxcons UXSSH BE_SSH SFTP wildcard UXMISC uxnogtk
 psftp    : [U] psftp uxsftp uxcons UXSSH BE_SSH SFTP wildcard UXMISC uxnogtk
 
-pageant  : [X] uxpgnt uxagentc aqsync pageant sshrsa sshpubk sshdes sshbn
+pageant  : [X] uxpgnt uxagentc aqsync pageant sshrsa sshrsacert sshpubk sshdes sshbn
 	 + sshmd5 version tree234 misc sshaes sshsha sshdss sshsh256 sshsh512
 	 + sshecc CONF uxsignal nocproxy nogss be_none x11fwd ux_x11 uxcons
          + gtkask gtkmisc nullplug logging UXMISC uxagentsock
