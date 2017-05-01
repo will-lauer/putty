@@ -470,6 +470,7 @@ extern const struct ssh_signkey ssh_ecdsa_ed25519;
 extern const struct ssh_signkey ssh_ecdsa_nistp256;
 extern const struct ssh_signkey ssh_ecdsa_nistp384;
 extern const struct ssh_signkey ssh_ecdsa_nistp521;
+extern const struct ssh_signkey ssh_cert_rsa;
 extern const struct ssh_mac ssh_hmac_md5;
 extern const struct ssh_mac ssh_hmac_sha1;
 extern const struct ssh_mac ssh_hmac_sha1_buggy;
