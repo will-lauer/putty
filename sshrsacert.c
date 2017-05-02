@@ -289,7 +289,7 @@ static void rsa2certkey_freekey(void *key)
     if (rsacert->p)
         freebn(rsacert->p);
     if (rsacert->q)
-        freebn(rsacert);
+        freebn(rsacert->q);
     if (rsacert->comment)
         sfree(rsacert->comment);
 
@@ -385,11 +385,20 @@ static void *rsa2certkey_createkey(const struct ssh_signkey *self,
     key.private_exponent = rsa->private_exponent;
     key.p = rsa->p;
     key.q = rsa->q;
-    key.iqmp = rsa->iqmp;
+    /* verify might modify iqmp, so copy it here to avoid corruption */
+    Bignum iqmp = copybn(rsa->iqmp);
+    key.iqmp = iqmp;
 
     if (!rsa_verify(&key)) {
+        freebn(key.iqmp);
         rsa2certkey_freekey(rsa);
         return NULL;
+    }
+
+    if (iqmp != key.iqmp) {
+        /* verify modified iqmp */
+        freebn(rsa->iqmp);
+        rsa->iqmp = key.iqmp;
     }
 
     return rsa;
@@ -471,11 +480,20 @@ static void *rsa2certkey_openssh_createkey(const struct ssh_signkey *self,
     key.private_exponent = certkey->private_exponent;
     key.p = certkey->p;
     key.q = certkey->q;
-    key.iqmp = certkey->iqmp;
+    /* verify might modify iqmp, so copy it here to avoid corruption */
+    Bignum iqmp = copybn(certkey->iqmp);
+    key.iqmp = iqmp;
 
     if (!rsa_verify(&key)) {
+        freebn(key.iqmp);
         rsa2certkey_freekey(certkey);
         return NULL;
+    }
+
+    if (iqmp != key.iqmp) {
+        /* verify modified iqmp */
+        freebn(certkey->iqmp);
+        certkey->iqmp = key.iqmp;
     }
 
     return certkey;
