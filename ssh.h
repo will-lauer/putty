@@ -439,6 +439,28 @@ struct dss_key {
     ssh_key sshk;
 };
 
+struct dss_cert_key {
+    ptrlen certificate;
+    char* nonce;
+    Bignum p;
+    Bignum q;
+    Bignum g;
+    Bignum y;
+    uint64_t serial;
+    uint32_t type;
+    char * keyid;
+    char * principals;
+    uint64_t valid_after;
+    uint64_t valid_before;
+    char * options;
+    char * extensions;
+    char * reserved;
+    ssh_key* sigkey;
+    char * signature;
+    Bignum x;
+    ssh_key sshk;
+};
+
 struct ec_curve;
 
 struct ec_point {
@@ -459,7 +481,7 @@ struct ec_wcurve
     struct ec_point G;
 };
 
-/* Montgomery form curve */
+/* Montgomery form curvfe */
 struct ec_mcurve
 {
     Bignum a, b;
@@ -897,6 +919,7 @@ extern const ssh_keyalg ssh_ecdsa_nistp256;
 extern const ssh_keyalg ssh_ecdsa_nistp384;
 extern const ssh_keyalg ssh_ecdsa_nistp521;
 extern const ssh_keyalg ssh_cert_rsa;
+extern const ssh_keyalg ssh_cert_dss;
 extern const struct ssh2_macalg ssh_hmac_md5;
 extern const struct ssh2_macalg ssh_hmac_sha1;
 extern const struct ssh2_macalg ssh_hmac_sha1_buggy;
