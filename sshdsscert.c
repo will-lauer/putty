@@ -10,40 +10,6 @@
 #include "ssh.h"
 #include "misc.h"
 
-#define copy_string(field, src) field = mkstr(get_string(cert))
-
-void freedsscertkey(struct dss_cert_key* key)
-{
-    if (key->certificate.ptr)
-        sfree((void*)(key->certificate.ptr));
-    if (key->nonce)
-        sfree(key->nonce);
-    if (key->p)
-        freebn(key->p);
-    if (key->q)
-        freebn(key->q);
-    if (key->g)
-        freebn(key->g);
-    if (key->y)
-        freebn(key->y);
-    if (key->keyid)
-        sfree(key->keyid);
-    if (key->principals)
-        sfree(key->principals);
-    if (key->options)
-        sfree(key->options);
-    if (key->extensions)
-        sfree(key->extensions);
-    if (key->reserved)
-        sfree(key->reserved);
-    if (key->sigkey)
-        ssh_key_free(key->sigkey);
-    if (key->signature)
-        sfree(key->signature);
-    if (key->x)
-        freebn(key->x);
-}
-
 /* -----------------------------------------------------------------------
  * Implementation of the ssh-dss-cert-v01@openssh.com key type
  */
@@ -56,16 +22,16 @@ static ssh_key *dsscert_new_pub(const ssh_keyalg *self, ptrlen data)
     struct dss_cert_key *certkey;
 
     BinarySource_BARE_INIT(src, data.ptr, data.len);
-    if (!ptrlen_eq_string(get_string(src), "ssh-rsa-cert-v01@openssh.com"))
+    ptrlen certtype = get_string(src);
+    if (!ptrlen_eq_string(certtype, ssh_cert_dss.ssh_id))
         return NULL;
 
     certkey = snew(struct dss_cert_key);
     certkey->sshk = &ssh_cert_dss;
 
-    ptrlen certdata = get_string(src);
-    certkey->certificate.ptr = snewn(certdata.len, char);
-    memcpy((void*)(certkey->certificate.ptr), certdata.ptr, certdata.len);
-    certkey->certificate.len = certdata.len;
+    certkey->certificate.ptr = snewn(data.len, char);
+    memcpy((void*)(certkey->certificate.ptr), data.ptr, data.len);
+    certkey->certificate.len = data.len;
 
     certkey->x = NULL;
     certkey->p = certkey->q = certkey->g = certkey->y = NULL;
@@ -79,29 +45,26 @@ static ssh_key *dsscert_new_pub(const ssh_keyalg *self, ptrlen data)
         return NULL;
     }
 
-    BinarySource cert[1];
-    BinarySource_BARE_INIT(cert, certkey->certificate.ptr, certkey->certificate.len);
-    ptrlen certtype = get_string(cert);
-    copy_string(certkey->nonce, cert);
-    certkey->p = get_mp_ssh2(cert);
-    certkey->q = get_mp_ssh2(cert);
-    certkey->g = get_mp_ssh2(cert);
-    certkey->y = get_mp_ssh2(cert);
-    certkey->serial = get_uint64(cert);
-    certkey->type = get_uint32(cert);
-    copy_string(certkey->keyid, cert);
-    copy_string(certkey->principals, cert);
-    certkey->valid_after = get_uint64(cert);
-    certkey->valid_before = get_uint64(cert);
-    copy_string(certkey->options, cert);
-    copy_string(certkey->extensions, cert);
-    copy_string(certkey->reserved, cert);
+    certkey->nonce = mkstr(get_string(src));
+    certkey->p = get_mp_ssh2(src);
+    certkey->q = get_mp_ssh2(src);
+    certkey->g = get_mp_ssh2(src);
+    certkey->y = get_mp_ssh2(src);
+    certkey->serial = get_uint64(src);
+    certkey->type = get_uint32(src);
+    certkey->keyid = mkstr(get_string(src));
+    certkey->principals = mkstr(get_string(src));
+    certkey->valid_after = get_uint64(src);
+    certkey->valid_before = get_uint64(src);
+    certkey->options = mkstr(get_string(src));
+    certkey->extensions = mkstr(get_string(src));
+    certkey->reserved = mkstr(get_string(src));
 
-    ptrlen sigkey = get_string(cert);
+    ptrlen sigkey = get_string(src);
 
-    copy_string(certkey->signature, cert);
+    certkey->signature = mkstr(get_string(src));
 
-    if (get_err(cert) || !ptrlen_eq_string(certtype, ssh_cert_dss.ssh_id)) {
+    if (get_err(src)) {
         dsscert_freekey(&certkey->sshk);
         return NULL;
     }
@@ -125,7 +88,36 @@ static ssh_key *dsscert_new_pub(const ssh_keyalg *self, ptrlen data)
 static void dsscert_freekey(ssh_key *key)
 {
     struct dss_cert_key *certkey = container_of(key, struct dss_cert_key, sshk);
-    freedsscertkey(certkey);
+
+    if (certkey->certificate.ptr)
+        sfree((void*)(certkey->certificate.ptr));
+    if (certkey->nonce)
+        sfree(certkey->nonce);
+    if (certkey->p)
+        freebn(certkey->p);
+    if (certkey->q)
+        freebn(certkey->q);
+    if (certkey->g)
+        freebn(certkey->g);
+    if (certkey->y)
+        freebn(certkey->y);
+    if (certkey->keyid)
+        sfree(certkey->keyid);
+    if (certkey->principals)
+        sfree(certkey->principals);
+    if (certkey->options)
+        sfree(certkey->options);
+    if (certkey->extensions)
+        sfree(certkey->extensions);
+    if (certkey->reserved)
+        sfree(certkey->reserved);
+    if (certkey->sigkey)
+        ssh_key_free(certkey->sigkey);
+    if (certkey->signature)
+        sfree(certkey->signature);
+    if (certkey->x)
+        freebn(certkey->x);
+
     sfree(certkey);
 }
 
@@ -135,6 +127,7 @@ static ssh_key *dsscert_new_priv(const ssh_keyalg *self,
     BinarySource src[1];
     ssh_key *sshk;
     struct dss_cert_key *certkey;
+    Bignum ytest;
 
     sshk = dsscert_new_pub(self, pub);
     if (!sshk) {
@@ -145,10 +138,19 @@ static ssh_key *dsscert_new_priv(const ssh_keyalg *self,
     BinarySource_BARE_INIT(src, priv.ptr, priv.len);
     certkey->x = get_mp_ssh2(src);
 
-    if (get_err(src) || false /*dsscert_verify(certkey)*/) {
+    if (get_err(src)) {
         dsscert_freekey(&certkey->sshk);
         return NULL;
     }
+
+    /* validate the key - from sshdss.c */
+    ytest = modpow(certkey->g, certkey->x, certkey->p);
+    if (0 != bignum_cmp(ytest, certkey->y)) {
+        dsscert_freekey(&certkey->sshk);
+        freebn(ytest);
+        return NULL;
+    }
+    freebn(ytest);
 
     return &certkey->sshk;
 }
@@ -167,7 +169,7 @@ static ssh_key *dsscert_new_priv_openssh(const ssh_keyalg *self,
     certkey->certificate.len = certdata.len;
     certkey->x = get_mp_ssh2(src);
 
-    if (get_err(src) || false /*dsscert_verify(certkey)*/) {
+    if (get_err(src)) {
         dsscert_freekey(&certkey->sshk);
         return NULL;
     }
@@ -176,26 +178,28 @@ static ssh_key *dsscert_new_priv_openssh(const ssh_keyalg *self,
     BinarySource_BARE_INIT(cert, certkey->certificate.ptr, certkey->certificate.len);
     ptrlen certtype = get_string(cert);
 
-    copy_string(certkey->nonce, cert);
+    certkey->nonce = mkstr(get_string(cert));
     certkey->p = get_mp_ssh2(cert);
     certkey->q = get_mp_ssh2(cert);
     certkey->g = get_mp_ssh2(cert);
     certkey->y = get_mp_ssh2(cert);
     certkey->serial = get_uint64(cert);
     certkey->type = get_uint32(cert);
-    copy_string(certkey->keyid, cert);
-    copy_string(certkey->principals, cert);
+    certkey->keyid = mkstr(get_string(cert));
+    certkey->principals = mkstr(get_string(cert));
     certkey->valid_after = get_uint64(cert);
     certkey->valid_before = get_uint64(cert);
-    copy_string(certkey->options, cert);
-    copy_string(certkey->extensions, cert);
-    copy_string(certkey->reserved, cert);
+    certkey->options = mkstr(get_string(cert));
+    certkey->extensions = mkstr(get_string(cert));
+    certkey->reserved = mkstr(get_string(cert));
 
     ptrlen sigkey = get_string(cert);
 
-    copy_string(certkey->signature, cert);
+    certkey->signature = mkstr(get_string(cert));
 
-    if (get_err(cert) || !ptrlen_eq_string(certtype, ssh_cert_dss.ssh_id)) {
+    /* validate the key - from sshdss.c */
+    if (get_err(cert) || !ptrlen_eq_string(certtype, ssh_cert_dss.ssh_id)
+            || !bignum_cmp(certkey->q, Zero) || !bignum_cmp(certkey->p, Zero)) {
         dsscert_freekey(&certkey->sshk);
         return NULL;
     }
