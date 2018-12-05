@@ -999,6 +999,7 @@ int pageant_add_keyfile(Filename *filename, const char *passphrase,
 {
     struct RSAKey *rkey = NULL;
     struct ssh2_userkey *skey = NULL;
+    struct ssh2_userkey *ckey = NULL;
     bool needs_pass;
     int ret;
     int attempts;
@@ -1214,6 +1215,36 @@ int pageant_add_keyfile(Filename *filename, const char *passphrase,
      */
 
     /*
+     * attempt to load a certificate
+     */
+    Filename certfilename;
+    certfilename.path = dupprintf("%s-cert", filename->path);
+    FILE* certfile = f_open(&certfilename, "rb", false);
+    sfree(certfilename.path);
+
+    if (certfile) {
+        strbuf* certblob = strbuf_new();
+        char* certalg = NULL;
+        char* comment = NULL;
+        const char* errstring = NULL;
+        if (openssh_loadpub(certfile, &certalg, BinarySink_UPCAST(certblob), &comment, &errstring)) {
+            strbuf* privblob = strbuf_new();
+            ssh_key_private_blob(skey->key, BinarySink_UPCAST(privblob));
+            const ssh_keyalg* alg = find_pubkey_alg(certalg);
+            ssh_key* cert = ssh_key_new_priv(alg, ptrlen_from_strbuf(certblob), ptrlen_from_strbuf(privblob));
+            if (cert) {
+                ckey = snew(struct ssh2_userkey);
+                ckey->key = cert;
+                ckey->comment = comment;
+            }
+            strbuf_free(privblob);
+        }
+        strbuf_free(certblob);
+        fclose(certfile);
+        certfile = NULL;
+    }
+
+    /*
      * If the key was successfully decrypted, save the passphrase for
      * use with other keys we try to load.
      */
@@ -1291,11 +1322,41 @@ int pageant_add_keyfile(Filename *filename, const char *passphrase,
             }
 
 	    sfree(response);
+
+	    /* add cert here if it was found */
+
+	    if (ckey != NULL) {
+	        request = strbuf_new_for_agent_query();
+	        put_byte(request, SSH2_AGENTC_ADD_IDENTITY);
+	        put_stringz(request, ssh_key_ssh_id(ckey->key));
+	        ssh_key_openssh_blob(ckey->key, BinarySink_UPCAST(request));
+	        put_stringz(request, ckey->comment);
+	        agent_query_synchronous(request, &vresponse, &resplen);
+	        strbuf_free(request);
+
+	        response = vresponse;
+	        if (resplen < 5 || response[4] != SSH_AGENT_SUCCESS) {
+	            *retstr = dupstr("The already running Pageant "
+	                    "refused to add the certificate.");
+                sfree(response);
+                return PAGEANT_ACTION_FAILURE;
+            }
+
+	        sfree(response);
+	    }
+
 	} else {
 	    if (!pageant_add_ssh2_key(skey)) {
-                ssh_key_free(skey->key);
-		sfree(skey);	       /* already present, don't waste RAM */
+	        ssh_key_free(skey->key);
+	        sfree(skey);	       /* already present, don't waste RAM */
 	    }
+
+	    /* add cert here if it was found */
+        if (ckey != NULL && !pageant_add_ssh2_key(ckey)) {
+            ssh_key_free(ckey->key);
+            sfree(ckey);           /* already present, don't waste RAM */
+        }
+
 	}
     }
     return PAGEANT_ACTION_OK;

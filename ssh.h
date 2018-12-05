@@ -1166,6 +1166,9 @@ bool ssh2_userkey_loadpub(const Filename *filename, char **algorithm,
                           char **commentptr, const char **errorstr);
 bool ssh2_save_userkey(const Filename *filename, struct ssh2_userkey *key,
                        char *passphrase);
+bool openssh_loadpub(FILE *fp, char **algorithm,
+                     BinarySink *bs,
+                     char **commentptr, const char **errorstr);
 const ssh_keyalg *find_pubkey_alg(const char *name);
 const ssh_keyalg *find_pubkey_alg_len(ptrlen name);
 
