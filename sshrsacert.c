@@ -23,11 +23,11 @@ static ssh_key *rsa2cert_new_pub(const ssh_keyalg *self, ptrlen data)
 
     BinarySource_BARE_INIT(src, data.ptr, data.len);
     ptrlen certtype = get_string(src);
-    if (!ptrlen_eq_string(certtype, ssh_cert_rsa.ssh_id))
+    if (!ptrlen_eq_string(certtype, self->ssh_id))
         return NULL;
 
     certkey = snew(struct RSACertKey);
-    certkey->sshk = &ssh_cert_rsa;
+    certkey->sshk = self;
 
     certkey->certificate.ptr = snewn(data.len, char);
     memcpy((void*)(certkey->certificate.ptr), data.ptr, data.len);
@@ -170,7 +170,7 @@ static ssh_key *rsa2cert_new_priv_openssh(const ssh_keyalg *self,
     struct RSACertKey *certkey;
 
     certkey = snew(struct RSACertKey);
-    certkey->sshk = &ssh_cert_rsa;
+    certkey->sshk = self;
     certkey->comment = NULL;
 
     ptrlen certdata = get_string(src);
@@ -219,7 +219,7 @@ static ssh_key *rsa2cert_new_priv_openssh(const ssh_keyalg *self,
     rsakey.comment = "";
     rsakey.sshk = &ssh_rsa;
 
-    if (get_err(cert) || !ptrlen_eq_string(certtype, ssh_cert_rsa.ssh_id)
+    if (get_err(cert) || !ptrlen_eq_string(certtype, self->ssh_id)
             || !rsa_verify(&rsakey)) {
         rsa2cert_freekey(&certkey->sshk);
         return NULL;
@@ -342,6 +342,6 @@ const ssh_keyalg ssh_cert_rsa = {
         rsa2cert_pubkey_bits,
 
         "ssh-rsa-cert-v01@openssh.com",
-        "rsa2cert",
+        "ssh-rsa-cert-v01",
         NULL,
 };

@@ -23,22 +23,16 @@ static ssh_key *dsscert_new_pub(const ssh_keyalg *self, ptrlen data)
 
     BinarySource_BARE_INIT(src, data.ptr, data.len);
     ptrlen certtype = get_string(src);
-    if (!ptrlen_eq_string(certtype, ssh_cert_dss.ssh_id))
+    if (!ptrlen_eq_string(certtype, self->ssh_id))
         return NULL;
 
     certkey = snew(struct dss_cert_key);
-    certkey->sshk = &ssh_cert_dss;
+    memset(certkey, 0, sizeof(struct dss_cert_key));
+    certkey->sshk = self;
 
     certkey->certificate.ptr = snewn(data.len, char);
     memcpy((void*)(certkey->certificate.ptr), data.ptr, data.len);
     certkey->certificate.len = data.len;
-
-    certkey->x = NULL;
-    certkey->p = certkey->q = certkey->g = certkey->y = NULL;
-    certkey->nonce = certkey->keyid = certkey->principals = NULL;
-    certkey->options = certkey->extensions = certkey->reserved = NULL;
-    certkey->sigkey = NULL;
-    certkey->signature = NULL;
 
     if (get_err(src)) {
         dsscert_freekey(&certkey->sshk);
@@ -161,7 +155,8 @@ static ssh_key *dsscert_new_priv_openssh(const ssh_keyalg *self,
     struct dss_cert_key *certkey;
 
     certkey = snew(struct dss_cert_key);
-    certkey->sshk = &ssh_cert_dss;
+    memset(certkey, 0, sizeof(struct dss_cert_key));
+    certkey->sshk = self;
 
     ptrlen certdata = get_string(src);
     certkey->certificate.ptr = snewn(certdata.len, char);
@@ -198,7 +193,7 @@ static ssh_key *dsscert_new_priv_openssh(const ssh_keyalg *self,
     certkey->signature = mkstr(get_string(cert));
 
     /* validate the key - from sshdss.c */
-    if (get_err(cert) || !ptrlen_eq_string(certtype, ssh_cert_dss.ssh_id)
+    if (get_err(cert) || !ptrlen_eq_string(certtype, self->ssh_id)
             || !bignum_cmp(certkey->q, Zero) || !bignum_cmp(certkey->p, Zero)) {
         dsscert_freekey(&certkey->sshk);
         return NULL;
@@ -315,6 +310,6 @@ const ssh_keyalg ssh_cert_dss = {
         dsscert_pubkey_bits,
 
         "ssh-dss-cert-v01@openssh.com",
-        "dsscert",
+        "ssh-dss-cert-v01",
         NULL,
 };

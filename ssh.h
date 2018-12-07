@@ -473,6 +473,8 @@ struct ec_point {
 /* A couple of ECC functions exported for use outside sshecc.c */
 struct ec_point *ecp_mul(const struct ec_point *a, const Bignum b);
 void ec_point_free(struct ec_point *point);
+bool BinarySource_get_point(BinarySource *src, struct ec_point *point);
+#define get_point(src, pt) BinarySource_get_point(BinarySource_UPCAST(src), pt)
 
 /* Weierstrass form curve */
 struct ec_wcurve
@@ -514,6 +516,15 @@ struct ec_curve {
     };
 };
 
+struct ecsign_extra {
+    struct ec_curve *(*curve)(void);
+    const struct ssh_hashalg *hash;
+
+    /* These fields are used by the OpenSSH PEM format importer/exporter */
+    const unsigned char *oid;
+    int oidlen;
+};
+
 const ssh_keyalg *ec_alg_by_oid(int len, const void *oid,
                                         const struct ec_curve **curve);
 const unsigned char *ec_alg_oid(const ssh_keyalg *alg, int *oidlen);
@@ -527,6 +538,25 @@ bool ec_ed_alg_and_curve_by_bits(int bits,
 
 struct ec_key {
     struct ec_point publicKey;
+    Bignum privateKey;
+    ssh_key sshk;
+};
+
+struct ec_cert_key {
+    ptrlen certificate;
+    char* nonce;
+    struct ec_point publicKey;
+    uint64_t serial;
+    uint32_t type;
+    char * keyid;
+    char * principals;
+    uint64_t valid_after;
+    uint64_t valid_before;
+    char * options;
+    char * extensions;
+    char * reserved;
+    ssh_key* sigkey;
+    char * signature;
     Bignum privateKey;
     ssh_key sshk;
 };
@@ -920,6 +950,9 @@ extern const ssh_keyalg ssh_ecdsa_nistp384;
 extern const ssh_keyalg ssh_ecdsa_nistp521;
 extern const ssh_keyalg ssh_cert_rsa;
 extern const ssh_keyalg ssh_cert_dss;
+extern const ssh_keyalg ssh_ecdsa_cert_nistp256;
+extern const ssh_keyalg ssh_ecdsa_cert_nistp384;
+extern const ssh_keyalg ssh_ecdsa_cert_nistp521;
 extern const struct ssh2_macalg ssh_hmac_md5;
 extern const struct ssh2_macalg ssh_hmac_sha1;
 extern const struct ssh2_macalg ssh_hmac_sha1_buggy;

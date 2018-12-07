@@ -1231,13 +1231,15 @@ int pageant_add_keyfile(Filename *filename, const char *passphrase,
             strbuf* privblob = strbuf_new();
             ssh_key_private_blob(skey->key, BinarySink_UPCAST(privblob));
             const ssh_keyalg* alg = find_pubkey_alg(certalg);
-            ssh_key* cert = ssh_key_new_priv(alg, ptrlen_from_strbuf(certblob), ptrlen_from_strbuf(privblob));
-            if (cert) {
-                ckey = snew(struct ssh2_userkey);
-                ckey->key = cert;
-                ckey->comment = comment;
+            if (alg) {
+                ssh_key* cert = ssh_key_new_priv(alg, ptrlen_from_strbuf(certblob), ptrlen_from_strbuf(privblob));
+                if (cert) {
+                    ckey = snew(struct ssh2_userkey);
+                    ckey->key = cert;
+                    ckey->comment = comment;
+                }
+                strbuf_free(privblob);
             }
-            strbuf_free(privblob);
         }
         strbuf_free(certblob);
         fclose(certfile);

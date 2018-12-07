@@ -1675,26 +1675,16 @@ static bool decodepoint(const char *p, int length, struct ec_point *point)
     return true;
 }
 
-static bool BinarySource_get_point(BinarySource *src, struct ec_point *point)
+bool BinarySource_get_point(BinarySource *src, struct ec_point *point)
 {
     ptrlen str = get_string(src);
     if (get_err(src)) return false;
     return decodepoint(str.ptr, str.len, point);
 }
-#define get_point(src, pt) BinarySource_get_point(BinarySource_UPCAST(src), pt)
 
 /* ----------------------------------------------------------------------
  * Exposed ECDSA interface
  */
-
-struct ecsign_extra {
-    struct ec_curve *(*curve)(void);
-    const struct ssh_hashalg *hash;
-
-    /* These fields are used by the OpenSSH PEM format importer/exporter */
-    const unsigned char *oid;
-    int oidlen;
-};
 
 static void ecdsa_freekey(ssh_key *key)
 {
