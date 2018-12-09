@@ -99,6 +99,85 @@ static ssh_key *ecc_cert_new_pub(const ssh_keyalg *self, ptrlen data)
     return &certkey->sshk;
 }
 
+static ssh_key *ed_cert_new_pub(const ssh_keyalg *self, ptrlen data)
+{
+    const struct ecsign_extra *extra =
+        (const struct ecsign_extra *)((ssh_keyalg*)self->extra)->extra;
+    BinarySource src[1];
+    struct ec_cert_key *certkey;
+    struct ec_curve *curve;
+
+    curve = extra->curve();
+    assert(curve->type == EC_WEIERSTRASS || curve->type == EC_EDWARDS);
+
+    BinarySource_BARE_INIT(src, data.ptr, data.len);
+    ptrlen certtype = get_string(src);
+    if (!ptrlen_eq_string(certtype, self->ssh_id))
+        return NULL;
+
+    certkey = snew(struct ec_cert_key);
+    memset(certkey, 0, sizeof(struct ec_cert_key));
+    certkey->sshk = self;
+
+    certkey->certificate.ptr = snewn(data.len, char);
+    memcpy((void*)(certkey->certificate.ptr), data.ptr, data.len);
+    certkey->certificate.len = data.len;
+
+    certkey->publicKey.curve = curve;
+    certkey->publicKey.infinity = false;
+
+    if (get_err(src)) {
+        ecc_cert_freekey(&certkey->sshk);
+        return NULL;
+    }
+
+    certkey->nonce = mkstr(get_string(src));
+
+    ptrlen pkstr = get_string(src);
+    bool gotPoint = decodepoint_ed(pkstr.ptr, pkstr.len, &certkey->publicKey);
+
+    if (!gotPoint || !certkey->publicKey.x || !certkey->publicKey.y ||
+            bignum_cmp(certkey->publicKey.x, curve->p) >= 0 ||
+            bignum_cmp(certkey->publicKey.y, curve->p) >= 0)
+    {
+        ecc_cert_freekey(&certkey->sshk);
+        certkey = NULL;
+    }
+    certkey->serial = get_uint64(src);
+    certkey->type = get_uint32(src);
+    certkey->keyid = mkstr(get_string(src));
+    certkey->principals = mkstr(get_string(src));
+    certkey->valid_after = get_uint64(src);
+    certkey->valid_before = get_uint64(src);
+    certkey->options = mkstr(get_string(src));
+    certkey->extensions = mkstr(get_string(src));
+    certkey->reserved = mkstr(get_string(src));
+
+    ptrlen sigkey = get_string(src);
+
+    certkey->signature = mkstr(get_string(src));
+
+    if (get_err(src)) {
+        ecc_cert_freekey(&certkey->sshk);
+        return NULL;
+    }
+
+    BinarySource sk[1];
+    BinarySource_BARE_INIT(sk, sigkey.ptr, sigkey.len);
+    ptrlen algname = get_string(sk);
+    ssh_key signature_key = find_pubkey_alg_len(algname);
+    if (signature_key != NULL) {
+        certkey->sigkey = ssh_key_new_pub(signature_key, get_data(sk, get_avail(sk)));
+    }
+
+    if (get_err(sk)) {
+        ecc_cert_freekey(&certkey->sshk);
+        return NULL;
+    }
+
+    return &certkey->sshk;
+}
+
 static void ecc_cert_freekey(ssh_key *key)
 {
     struct ec_cert_key *certkey = container_of(key, struct ec_cert_key, sshk);
@@ -141,7 +220,7 @@ static ssh_key *ecc_cert_new_priv(const ssh_keyalg *self,
     struct ec_cert_key *certkey;
     struct ec_point *publicKey;
 
-    sshk = ecc_cert_new_pub(self, pub);
+    sshk = ssh_key_new_pub(self, pub);
     if (!sshk) {
         return NULL;
     }
@@ -170,6 +249,7 @@ static ssh_key *ecc_cert_new_priv(const ssh_keyalg *self,
     {
         ecc_cert_freekey(&certkey->sshk);
         certkey = NULL;
+        return NULL;
     }
     ec_point_free(publicKey);
 
@@ -233,6 +313,84 @@ static ssh_key *ecc_cert_new_priv_openssh(const ssh_keyalg *self,
 
     if (get_err(cert) || !ptrlen_eq_string(certtype, self->ssh_id) ||
             !ptrlen_eq_string(curvename, certkey->publicKey.curve->name) || !gotPoint ||
+            !certkey->publicKey.x || !certkey->publicKey.y ||
+            bignum_cmp(certkey->publicKey.x, curve->p) >= 0 ||
+            bignum_cmp(certkey->publicKey.y, curve->p) >= 0)
+    {
+        ecc_cert_freekey(&certkey->sshk);
+        certkey = NULL;
+    }
+
+    BinarySource sk[1];
+    BinarySource_BARE_INIT(sk, sigkey.ptr, sigkey.len);
+    ptrlen algname = get_string(sk);
+    ssh_key signature_key = find_pubkey_alg_len(algname);
+    if (signature_key != NULL) {
+        certkey->sigkey = ssh_key_new_pub(signature_key, get_data(sk, get_avail(sk)));
+    } else {
+        certkey->sigkey = NULL;
+    }
+
+    if (get_err(sk)) {
+        ecc_cert_freekey(&certkey->sshk);
+        return NULL;
+    }
+
+    return &certkey->sshk;
+}
+
+static ssh_key *ed_cert_new_priv_openssh(const ssh_keyalg *self,
+        BinarySource *src)
+{
+    const struct ecsign_extra *extra =
+            (const struct ecsign_extra *)((ssh_keyalg*)self->extra)->extra;
+    struct ec_cert_key *certkey;
+    struct ec_curve *curve;
+
+    curve = extra->curve();
+    assert(curve->type == EC_WEIERSTRASS || curve->type == EC_EDWARDS);
+
+    certkey = snew(struct ec_cert_key);
+    memset(certkey, 0, sizeof(struct ec_cert_key));
+    certkey->sshk = self;
+
+    ptrlen certdata = get_string(src);
+    certkey->certificate.ptr = snewn(certdata.len, char);
+    memcpy((void*)(certkey->certificate.ptr), certdata.ptr, certdata.len);
+    certkey->certificate.len = certdata.len;
+
+    certkey->privateKey = get_mp_ssh2(src);
+
+    if (get_err(src) || !certkey->privateKey) {
+        ecc_cert_freekey(&certkey->sshk);
+        return NULL;
+    }
+
+    BinarySource cert[1];
+    BinarySource_BARE_INIT(cert, certkey->certificate.ptr, certkey->certificate.len);
+    ptrlen certtype = get_string(cert);
+
+    certkey->nonce = mkstr(get_string(cert));
+
+    ptrlen pkstr = get_string(cert);
+    bool gotPoint = decodepoint_ed(pkstr.ptr, pkstr.len, &certkey->publicKey);
+
+    certkey->serial = get_uint64(cert);
+    certkey->type = get_uint32(cert);
+    certkey->keyid = mkstr(get_string(cert));
+    certkey->principals = mkstr(get_string(cert));
+    certkey->valid_after = get_uint64(cert);
+    certkey->valid_before = get_uint64(cert);
+    certkey->options = mkstr(get_string(cert));
+    certkey->extensions = mkstr(get_string(cert));
+    certkey->reserved = mkstr(get_string(cert));
+
+    ptrlen sigkey = get_string(cert);
+
+    certkey->signature = mkstr(get_string(cert));
+
+    if (get_err(cert) || !ptrlen_eq_string(certtype, self->ssh_id) ||
+             !gotPoint ||
             !certkey->publicKey.x || !certkey->publicKey.y ||
             bignum_cmp(certkey->publicKey.x, curve->p) >= 0 ||
             bignum_cmp(certkey->publicKey.y, curve->p) >= 0)
@@ -326,7 +484,7 @@ static int ecc_cert_pubkey_bits(const ssh_keyalg *self, ptrlen pub)
     struct ec_cert_key *certkey;
     int ret;
 
-    sshk = ecc_cert_new_pub(self, pub);
+    sshk = ssh_key_new_pub(self, pub);
     if (!sshk)
         return -1;
 
@@ -395,4 +553,24 @@ const ssh_keyalg ssh_ecdsa_cert_nistp521 = {
         "ecdsa-sha2-nistp521-cert-v01@openssh.com",
         "ecdsa-sha2-nistp521-cert-v01",
         &ssh_ecdsa_nistp521
+};
+
+const ssh_keyalg ssh_ecdsa_cert_ed25519 = {
+        ed_cert_new_pub,
+        ecc_cert_new_priv,
+        ed_cert_new_priv_openssh,
+
+        ecc_cert_freekey,
+        ecc_cert_sign,
+        ecc_cert_verify,
+        ecc_cert_public_blob,
+        ecc_cert_private_blob,
+        ecc_cert_openssh_blob,
+        ecc_cert_cache_str,
+
+        ecc_cert_pubkey_bits,
+
+        "ssh-ed25519-cert-v01@openssh.com",
+        "ssh-ed25519-cert-v01",
+        &ssh_ecdsa_ed25519
 };

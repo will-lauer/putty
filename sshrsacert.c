@@ -132,7 +132,7 @@ static ssh_key *rsa2cert_new_priv(const ssh_keyalg *self,
     ssh_key *sshk;
     struct RSACertKey *certkey;
 
-    sshk = rsa2cert_new_pub(self, pub);
+    sshk = ssh_key_new_pub(self, pub);
     if (!sshk) {
         return NULL;
     }
@@ -315,7 +315,7 @@ static int rsa2cert_pubkey_bits(const ssh_keyalg *self, ptrlen pub)
     struct RSACertKey *certkey;
     int ret;
 
-    sshk = rsa2cert_new_pub(self, pub);
+    sshk = ssh_key_new_pub(self, pub);
     if (!sshk)
         return -1;
 

@@ -123,7 +123,7 @@ static ssh_key *dsscert_new_priv(const ssh_keyalg *self,
     struct dss_cert_key *certkey;
     Bignum ytest;
 
-    sshk = dsscert_new_pub(self, pub);
+    sshk = ssh_key_new_pub(self, pub);
     if (!sshk) {
         return NULL;
     }
@@ -283,7 +283,7 @@ static int dsscert_pubkey_bits(const ssh_keyalg *self, ptrlen pub)
     struct dss_cert_key *certkey;
     int ret;
 
-    sshk = dsscert_new_pub(self, pub);
+    sshk = ssh_key_new_pub(self, pub);
     if (!sshk)
         return -1;
 

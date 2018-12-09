@@ -475,6 +475,7 @@ struct ec_point *ecp_mul(const struct ec_point *a, const Bignum b);
 void ec_point_free(struct ec_point *point);
 bool BinarySource_get_point(BinarySource *src, struct ec_point *point);
 #define get_point(src, pt) BinarySource_get_point(BinarySource_UPCAST(src), pt)
+bool decodepoint_ed(const char *p, int length, struct ec_point *point);
 
 /* Weierstrass form curve */
 struct ec_wcurve
@@ -953,6 +954,7 @@ extern const ssh_keyalg ssh_cert_dss;
 extern const ssh_keyalg ssh_ecdsa_cert_nistp256;
 extern const ssh_keyalg ssh_ecdsa_cert_nistp384;
 extern const ssh_keyalg ssh_ecdsa_cert_nistp521;
+extern const ssh_keyalg ssh_ecdsa_cert_ed25519;
 extern const struct ssh2_macalg ssh_hmac_md5;
 extern const struct ssh2_macalg ssh_hmac_sha1;
 extern const struct ssh2_macalg ssh_hmac_sha1_buggy;

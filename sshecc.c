@@ -1598,7 +1598,7 @@ static Bignum BinarySource_get_mp_le(BinarySource *src)
 }
 #define get_mp_le(src) BinarySource_get_mp_le(BinarySource_UPCAST(src))
 
-static bool decodepoint_ed(const char *p, int length, struct ec_point *point)
+bool decodepoint_ed(const char *p, int length, struct ec_point *point)
 {
     /* Got some conversion to do, first read in the y co-ord */
     bool negative;
