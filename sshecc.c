@@ -1591,12 +1591,11 @@ static void _ecdsa_sign(const Bignum privateKey, const struct ec_curve *curve,
  * Misc functions
  */
 
-static Bignum BinarySource_get_mp_le(BinarySource *src)
+Bignum BinarySource_get_mp_le(BinarySource *src)
 {
     ptrlen mp_str = get_string(src);
     return bignum_from_bytes_le(mp_str.ptr, mp_str.len);
 }
-#define get_mp_le(src) BinarySource_get_mp_le(BinarySource_UPCAST(src))
 
 bool decodepoint_ed(const char *p, int length, struct ec_point *point)
 {

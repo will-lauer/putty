@@ -476,6 +476,8 @@ void ec_point_free(struct ec_point *point);
 bool BinarySource_get_point(BinarySource *src, struct ec_point *point);
 #define get_point(src, pt) BinarySource_get_point(BinarySource_UPCAST(src), pt)
 bool decodepoint_ed(const char *p, int length, struct ec_point *point);
+#define get_mp_le(src) BinarySource_get_mp_le(BinarySource_UPCAST(src))
+Bignum BinarySource_get_mp_le(BinarySource *src);
 
 /* Weierstrass form curve */
 struct ec_wcurve

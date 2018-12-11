@@ -588,8 +588,8 @@ const ssh_keyalg *find_pubkey_alg_len(ptrlen name)
         return &ssh_ecdsa_cert_nistp384;
     else if (ptrlen_eq_string(name, "ecdsa-sha2-nistp521-cert-v01@openssh.com"))
         return &ssh_ecdsa_cert_nistp521;
-//    else if (ptrlen_eq_string(name, "ssh-ed25519-cert-v01@openssh.com"))
-//        return &ssh_ecdsa_cert_ed25519;
+    else if (ptrlen_eq_string(name, "ssh-ed25519-cert-v01@openssh.com"))
+        return &ssh_ecdsa_cert_ed25519;
     else
 	return NULL;
 }

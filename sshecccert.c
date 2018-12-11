@@ -234,7 +234,11 @@ static ssh_key *ecc_cert_new_priv(const ssh_keyalg *self,
         return NULL;
     }
 
-    certkey->privateKey = get_mp_ssh2(src);
+    if (certkey->publicKey.curve->type == EC_EDWARDS) {
+        certkey->privateKey = get_mp_le(src);
+    } else {
+        certkey->privateKey = get_mp_ssh2(src);
+    }
     if (!certkey->privateKey) {
         ecc_cert_freekey(&certkey->sshk);
         return NULL;
