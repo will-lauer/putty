@@ -639,19 +639,19 @@ if (defined $makefiles{'cygwin'}) {
     "\n".
     ".SUFFIXES:\n".
     "\n";
-    print &splitline("all:" . join "", map { " $_.exe" } &progrealnames("G:C"));
+    print &splitline("all:" . join "", map { " \$(BUILDDIR)$_.exe" } &progrealnames("G:C"));
     print "\n\n";
     foreach $p (&prognames("G:C")) {
       ($prog, $type) = split ",", $p;
-      $objstr = &objects($p, "X.o", "X.res.o", undef);
-      print &splitline($prog . ".exe: " . $objstr), "\n";
+      $objstr = &objects($p, "\$(BUILDDIR)X.o", "\$(BUILDDIR)X.res.o", undef);
+      print &splitline("\$(BUILDDIR)$prog.exe: " . $objstr), "\n";
       my $mw = $type eq "G" ? " -mwindows" : "";
       $libstr = &objects($p, undef, undef, "-lX");
       print &splitline("\t\$(CC)" . $mw . " \$(LDFLAGS) -o \$@ " .
-                       "-Wl,-Map,$prog.map " .
+                       "-Wl,-Map,\$(BUILDDIR)$prog.map " .
                        $objstr . " $libstr", 69), "\n\n";
     }
-    foreach $d (&deps("X.o", "X.res.o", $dirpfx, "/", "cygwin")) {
+    foreach $d (&deps("\$(BUILDDIR)X.o", "\$(BUILDDIR)X.res.o", $dirpfx, "/", "cygwin")) {
       if ($forceobj{$d->{obj_orig}}) {
         printf ("%s: FORCE\n", $d->{obj});
       } else {
@@ -661,13 +661,13 @@ if (defined $makefiles{'cygwin'}) {
       if ($d->{obj} =~ /\.res\.o$/) {
 	  print "\t\$(RC) \$(RCFL) \$(RCFLAGS) ".$d->{deps}->[0]." -o ".$d->{obj}."\n\n";
       } else {
-	  print "\t\$(CC) \$(COMPAT) \$(CFLAGS) \$(XFLAGS) -c ".$d->{deps}->[0]."\n\n";
+	  print "\t\$(CC) \$(COMPAT) \$(CFLAGS) \$(XFLAGS) -c ".$d->{deps}->[0]." -o ".$d->{obj}."\n\n";
       }
     }
     print "\n";
     print &def($makefile_extra{'cygwin'}->{'end'});
     print "\nclean:\n".
-    "\trm -f *.o *.exe *.res.o *.so *.map\n".
+    "\trm -f \$(BUILDDIR)*.o \$(BUILDDIR)*.exe \$(BUILDDIR)*.res.o \$(BUILDDIR)*.so \$(BUILDDIR)*.map\n".
     "\n".
     "FORCE:\n";
     select STDOUT; close OUT;
