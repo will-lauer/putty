@@ -700,6 +700,7 @@ const ssh_keyalg ssh_rsa = {
     rsa2_private_blob,
     rsa2_openssh_blob,
     rsa2_cache_str,
+    rsa2_public_blob,
 
     rsa2_pubkey_bits,
 

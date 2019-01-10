@@ -47,6 +47,7 @@
 #define IDM_ADDKEY   0x0030
 #define IDM_HELP     0x0040
 #define IDM_ABOUT    0x0050
+#define IDM_ADDCERT  0x0070 /* skip 0x60 since it is used below by IDM_PUTTY */
 
 #define APPNAME "Pageant"
 
@@ -60,6 +61,9 @@ static bool restrict_putty_acl = false;
 
 /* CWD for "add key" file requester. */
 static filereq *keypath = NULL;
+
+/* CWD for "add cert" file requester. */
+static filereq *certpath = NULL;
 
 #define IDM_PUTTY         0x0060
 #define IDM_SESSIONS_BASE 0x1000
@@ -312,7 +316,7 @@ void keylist_update(void)
              * stop and leave out a tab character. Urgh.
              */
 
-	    p = ssh2_fingerprint(skey->key);
+	    p = ssh2_fingerprint_realpub(skey->key);
             listentry = dupprintf("%s\t%s", p, skey->comment);
             sfree(p);
 
@@ -416,6 +420,27 @@ static void win_add_keyfile(Filename *filename)
     return;
 }
 
+static void win_add_certfile(Filename *filename)
+{
+    char *err;
+    int ret;
+
+    ret = pageant_add_certfile(filename, &err);
+    if (ret == PAGEANT_ACTION_OK) {
+        goto done;
+    } else if (ret == PAGEANT_ACTION_FAILURE) {
+        goto error;
+    }
+
+    error:
+    message_box(err, APPNAME, MB_OK | MB_ICONERROR,
+            HELPCTXID(errors_cantloadkey));
+
+    done:
+    sfree(err);
+    return;
+}
+
 /*
  * Prompt for a key file to add, and add it.
  */
@@ -462,6 +487,55 @@ static void prompt_add_keyfile(void)
 
 	keylist_update();
 	pageant_forget_passphrases();
+    }
+    sfree(filelist);
+}
+
+/*
+ * Prompt for a cert file to add, and add it.
+ */
+static void prompt_add_certfile(void)
+{
+    OPENFILENAME of;
+    char *filelist = snewn(8192, char);
+
+    if (!certpath) certpath = filereq_new();
+    memset(&of, 0, sizeof(of));
+    of.hwndOwner = hwnd;
+    of.lpstrFilter = FILTER_CERT_FILES;
+    of.lpstrCustomFilter = NULL;
+    of.nFilterIndex = 1;
+    of.lpstrFile = filelist;
+    *filelist = '\0';
+    of.nMaxFile = 8192;
+    of.lpstrFileTitle = NULL;
+    of.lpstrTitle = "Select Certificate File";
+    of.Flags = OFN_ALLOWMULTISELECT | OFN_EXPLORER;
+    if (request_file(certpath, &of, true, false)) {
+        if(strlen(filelist) > of.nFileOffset) {
+            /* Only one filename returned? */
+            Filename *fn = filename_from_str(filelist);
+            win_add_certfile(fn);
+            filename_free(fn);
+        } else {
+            /* we are returned a bunch of strings, end to
+             * end. first string is the directory, the
+             * rest the filenames. terminated with an
+             * empty string.
+             */
+            char *dir = filelist;
+            char *filewalker = filelist + strlen(dir) + 1;
+            while (*filewalker != '\0') {
+                char *filename = dupcat(dir, "\\", filewalker, NULL);
+                Filename *fn = filename_from_str(filename);
+                win_add_certfile(fn);
+                filename_free(fn);
+                sfree(filename);
+                filewalker += strlen(filewalker) + 1;
+            }
+        }
+
+        keylist_update();
     }
     sfree(filelist);
 }
@@ -529,6 +603,17 @@ static INT_PTR CALLBACK KeyListProc(HWND hwnd, UINT msg,
 		prompt_add_keyfile();
 	    }
 	    return 0;
+	  case 104:            /* add cert */
+          if (HIWORD(wParam) == BN_CLICKED
+                  || HIWORD(wParam) == BN_DOUBLECLICKED) {
+              if (passphrase_box) {
+                  MessageBeep(MB_ICONERROR);
+                  SetForegroundWindow(passphrase_box);
+                  break;
+              }
+              prompt_add_certfile();
+          }
+          return 0;
 	  case 102:		       /* remove key */
 	    if (HIWORD(wParam) == BN_CLICKED ||
 		HIWORD(wParam) == BN_DOUBLECLICKED) {
@@ -1030,6 +1115,14 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT message,
 	    }
 	    prompt_add_keyfile();
 	    break;
+	  case IDM_ADDCERT:
+        if (passphrase_box) {
+            MessageBeep(MB_ICONERROR);
+            SetForegroundWindow(passphrase_box);
+            break;
+        }
+        prompt_add_certfile();
+        break;
 	  case IDM_ABOUT:
 	    if (!aboutbox) {
 		aboutbox = CreateDialog(hinst, MAKEINTRESOURCE(213),
@@ -1320,6 +1413,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
     AppendMenu(systray_menu, MF_ENABLED, IDM_VIEWKEYS,
 	   "&View Keys");
     AppendMenu(systray_menu, MF_ENABLED, IDM_ADDKEY, "Add &Key");
+    AppendMenu(systray_menu, MF_ENABLED, IDM_ADDCERT, "Add &Cert");
     AppendMenu(systray_menu, MF_SEPARATOR, 0, 0);
     if (has_help())
 	AppendMenu(systray_menu, MF_ENABLED, IDM_HELP, "&Help");
@@ -1358,6 +1452,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
     }
 
     if (keypath) filereq_free(keypath);
+    if (certpath) filereq_free(certpath);
 
     cleanup_exit(msg.wParam);
     return msg.wParam;		       /* just in case optimiser complains */

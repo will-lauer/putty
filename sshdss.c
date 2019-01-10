@@ -466,6 +466,7 @@ const ssh_keyalg ssh_dss = {
     dss_private_blob,
     dss_openssh_blob,
     dss_cache_str,
+    dss_public_blob,
 
     dss_pubkey_bits,
 

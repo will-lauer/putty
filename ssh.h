@@ -407,8 +407,56 @@ struct RSAKey {
     ssh_key sshk;
 };
 
+struct RSACertKey {
+    ptrlen certificate;
+    char* nonce;
+    mp_int *modulus;
+    mp_int *exponent;
+    uint64_t serial;
+    uint32_t type;
+    char * keyid;
+    char * principals;
+    uint64_t valid_after;
+    uint64_t valid_before;
+    char * options;
+    char * extensions;
+    char * reserved;
+    ssh_key* sigkey;
+    char * signature;
+    bool hasPrivKey;
+    mp_int *private_exponent;
+    mp_int *iqmp;
+    mp_int *p;
+    mp_int *q;
+    char *comment;
+    ssh_key sshk;
+};
+
 struct dss_key {
     mp_int *p, *q, *g, *y, *x;
+    ssh_key sshk;
+};
+
+struct dss_cert_key {
+    ptrlen certificate;
+    char* nonce;
+    mp_int *p;
+    mp_int *q;
+    mp_int *g;
+    mp_int *y;
+    uint64_t serial;
+    uint32_t type;
+    char * keyid;
+    char * principals;
+    uint64_t valid_after;
+    uint64_t valid_before;
+    char * options;
+    char * extensions;
+    char * reserved;
+    ssh_key* sigkey;
+    char * signature;
+    bool hasPrivKey;
+    mp_int *x;
     ssh_key sshk;
 };
 
@@ -460,6 +508,15 @@ struct ec_curve {
     };
 };
 
+struct ecsign_extra {
+    struct ec_curve *(*curve)(void);
+    const struct ssh_hashalg *hash;
+
+    /* These fields are used by the OpenSSH PEM format importer/exporter */
+    const unsigned char *oid;
+    int oidlen;
+};
+
 const ssh_keyalg *ec_alg_by_oid(int len, const void *oid,
                                         const struct ec_curve **curve);
 const unsigned char *ec_alg_oid(const ssh_keyalg *alg, int *oidlen);
@@ -484,8 +541,71 @@ struct eddsa_key {
     ssh_key sshk;
 };
 
+struct ecdsa_cert_key {
+    ptrlen certificate;
+    char* nonce;
+    const struct ec_curve *curve;
+    WeierstrassPoint *publicKey;
+    uint64_t serial;
+    uint32_t type;
+    char * keyid;
+    char * principals;
+    uint64_t valid_after;
+    uint64_t valid_before;
+    char * options;
+    char * extensions;
+    char * reserved;
+    ssh_key* sigkey;
+    char * signature;
+    bool hasPrivKey;
+    mp_int *privateKey;
+    ssh_key sshk;
+};
+
+struct eddsa_cert_key {
+    ptrlen certificate;
+    char* nonce;
+    const struct ec_curve *curve;
+    EdwardsPoint *publicKey;
+    uint64_t serial;
+    uint32_t type;
+    char * keyid;
+    char * principals;
+    uint64_t valid_after;
+    uint64_t valid_before;
+    char * options;
+    char * extensions;
+    char * reserved;
+    ssh_key* sigkey;
+    char * signature;
+    bool hasPrivKey;
+    mp_int *privateKey;
+    ssh_key sshk;
+};
+
+
 WeierstrassPoint *ecdsa_public(mp_int *private_key, const ssh_keyalg *alg);
 EdwardsPoint *eddsa_public(mp_int *private_key, const ssh_keyalg *alg);
+WeierstrassPoint *BinarySource_get_wpoint(
+    BinarySource *src, const struct ec_curve *curve);
+#define get_wpoint(src, curve) \
+    BinarySource_get_wpoint(BinarySource_UPCAST(src), curve)
+void BinarySink_put_wpoint(
+    BinarySink *bs, WeierstrassPoint *point, const struct ec_curve *curve,
+    bool bare);
+#define put_wpoint(bs, point, curve, bare)                              \
+    BinarySink_put_wpoint(BinarySink_UPCAST(bs), point, curve, bare)
+EdwardsPoint *BinarySource_get_epoint(
+    BinarySource *src, const struct ec_curve *curve);
+#define get_epoint(src, curve) \
+    BinarySource_get_epoint(BinarySource_UPCAST(src), curve)
+void BinarySink_put_epoint(
+    BinarySink *bs, EdwardsPoint *point, const struct ec_curve *curve,
+    bool bare);
+#define put_epoint(bs, point, curve, bare)                      \
+    BinarySink_put_epoint(BinarySink_UPCAST(bs), point, curve, bare)
+mp_int *BinarySource_get_mp_le(BinarySource *src);
+#define get_mp_le(src) BinarySource_get_mp_le(BinarySource_UPCAST(src))
 
 /*
  * SSH-1 never quite decided which order to store the two components
@@ -775,6 +895,7 @@ struct ssh_keyalg {
     void (*private_blob)(ssh_key *key, BinarySink *);
     void (*openssh_blob) (ssh_key *key, BinarySink *);
     char *(*cache_str) (ssh_key *key);
+    void (*real_public_blob)(ssh_key *key, BinarySink *);
 
     /* 'Class methods' that don't deal with an ssh_key at all */
     int (*pubkey_bits) (const ssh_keyalg *self, ptrlen blob);
@@ -798,6 +919,7 @@ struct ssh_keyalg {
 #define ssh_key_private_blob(key, bs) ((key)->vt->private_blob(key, bs))
 #define ssh_key_openssh_blob(key, bs) ((key)->vt->openssh_blob(key, bs))
 #define ssh_key_cache_str(key) ((key)->vt->cache_str(key))
+#define ssh_key_real_public_blob(key, bs) ((*(key))->real_public_blob(key, bs))
 
 #define ssh_key_public_bits(alg, blob) ((alg)->pubkey_bits(alg, blob))
 
@@ -911,6 +1033,12 @@ extern const ssh_keyalg ssh_ecdsa_ed25519;
 extern const ssh_keyalg ssh_ecdsa_nistp256;
 extern const ssh_keyalg ssh_ecdsa_nistp384;
 extern const ssh_keyalg ssh_ecdsa_nistp521;
+extern const ssh_keyalg ssh_cert_rsa;
+extern const ssh_keyalg ssh_cert_dss;
+extern const ssh_keyalg ssh_ecdsa_cert_nistp256;
+extern const ssh_keyalg ssh_ecdsa_cert_nistp384;
+extern const ssh_keyalg ssh_ecdsa_cert_nistp521;
+extern const ssh_keyalg ssh_ecdsa_cert_ed25519;
 extern const ssh2_macalg ssh_hmac_md5;
 extern const ssh2_macalg ssh_hmac_sha1;
 extern const ssh2_macalg ssh_hmac_sha1_buggy;
@@ -919,6 +1047,10 @@ extern const ssh2_macalg ssh_hmac_sha1_96_buggy;
 extern const ssh2_macalg ssh_hmac_sha256;
 extern const ssh2_macalg ssh2_poly1305;
 extern const ssh_compression_alg ssh_zlib;
+
+/* pointer to lookup function used by pkcs11 certificates to look up key at runtime */
+extern struct ssh2_userkey* (*ssh_find_key)(ptrlen publicblob);
+
 
 /*
  * On some systems, you have to detect hardware crypto acceleration by
@@ -1118,6 +1250,9 @@ bool ssh2_userkey_loadpub(
     char **commentptr, const char **errorstr);
 bool ssh2_save_userkey(
     const Filename *filename, ssh2_userkey *key, char *passphrase);
+bool openssh_loadpub(FILE *fp, char **algorithm,
+                     BinarySink *bs,
+                     char **commentptr, const char **errorstr);
 const ssh_keyalg *find_pubkey_alg(const char *name);
 const ssh_keyalg *find_pubkey_alg_len(ptrlen name);
 
@@ -1172,6 +1307,7 @@ void ssh2_write_pubkey(FILE *fp, const char *comment,
                        int keytype);
 char *ssh2_fingerprint_blob(const void *blob, int bloblen);
 char *ssh2_fingerprint(ssh_key *key);
+char *ssh2_fingerprint_realpub(ssh_key *key);
 int key_type(const Filename *filename);
 const char *key_type_to_str(int type);
 
@@ -1403,6 +1539,7 @@ enum {
 #define SSH2_AGENTC_ADD_IDENTITY                17
 #define SSH2_AGENTC_REMOVE_IDENTITY             18
 #define SSH2_AGENTC_REMOVE_ALL_IDENTITIES       19
+#define SSH2_AGENTC_ADD_ID_CONSTRAINED          25
 
 /*
  * Assorted other SSH-related enumerations.

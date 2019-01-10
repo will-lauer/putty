@@ -64,6 +64,7 @@ bool pageant_add_ssh1_key(RSAKey *rkey);
 bool pageant_add_ssh2_key(ssh2_userkey *skey);
 bool pageant_delete_ssh1_key(RSAKey *rkey);
 bool pageant_delete_ssh2_key(ssh2_userkey *skey);
+ssh2_userkey* pageant_find_ssh2_key(ptrlen publicblob);
 
 /*
  * This callback must be provided by the Pageant front end code.
@@ -123,6 +124,7 @@ enum {
 };
 int pageant_add_keyfile(Filename *filename, const char *passphrase,
                         char **retstr);
+int pageant_add_certfile(Filename *filename, char **retstr);
 void pageant_forget_passphrases(void);
 
 struct pageant_pubkey {

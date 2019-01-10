@@ -23,6 +23,8 @@
                           (x)=='/' ? 63 : 0 )
 
 static int key_type_fp(FILE *fp);
+struct ssh2_userkey* (*ssh_find_key)(ptrlen publicblob) = NULL;
+
 
 static int rsa_ssh1_load_main(FILE * fp, RSAKey *key, bool pub_only,
                               char **commentptr, const char *passphrase,
@@ -579,6 +581,18 @@ const ssh_keyalg *find_pubkey_alg_len(ptrlen name)
         return &ssh_ecdsa_nistp521;
     else if (ptrlen_eq_string(name, "ssh-ed25519"))
         return &ssh_ecdsa_ed25519;
+    else if (ptrlen_eq_string(name, "ssh-rsa-cert-v01@openssh.com"))
+        return &ssh_cert_rsa;
+    else if (ptrlen_eq_string(name, "ssh-dss-cert-v01@openssh.com"))
+        return &ssh_cert_dss;
+    else if (ptrlen_eq_string(name, "ecdsa-sha2-nistp256-cert-v01@openssh.com"))
+        return &ssh_ecdsa_cert_nistp256;
+    else if (ptrlen_eq_string(name, "ecdsa-sha2-nistp384-cert-v01@openssh.com"))
+        return &ssh_ecdsa_cert_nistp384;
+    else if (ptrlen_eq_string(name, "ecdsa-sha2-nistp521-cert-v01@openssh.com"))
+        return &ssh_ecdsa_cert_nistp521;
+    else if (ptrlen_eq_string(name, "ssh-ed25519-cert-v01@openssh.com"))
+        return &ssh_ecdsa_cert_ed25519;
     else
 	return NULL;
 }
@@ -1484,21 +1498,28 @@ void ssh2_write_pubkey(FILE *fp, const char *comment,
 /* ----------------------------------------------------------------------
  * Utility functions to compute SSH-2 fingerprints in a uniform way.
  */
-char *ssh2_fingerprint_blob(const void *blob, int bloblen)
+void ssh2_fingerprint_blob_hash(const void *blob, int bloblen, char *fp)
 {
+    /* assume that memory has already been allocated in fp for the fingerprint */
     unsigned char digest[16];
-    char fingerprint_str[16*3];
-    ptrlen algname;
-    const ssh_keyalg *alg;
     int i;
-    BinarySource src[1];
 
     /*
      * The fingerprint hash itself is always just the MD5 of the blob.
      */
     MD5Simple(blob, bloblen, digest);
     for (i = 0; i < 16; i++)
-        sprintf(fingerprint_str + i*3, "%02x%s", digest[i], i==15 ? "" : ":");
+        sprintf(fp + i*3, "%02x%s", digest[i], i==15 ? "" : ":");
+}
+
+char *ssh2_fingerprint_blob(const void *blob, int bloblen)
+{
+    char fingerprint_str[16*3];
+    ptrlen algname;
+    const ssh_keyalg *alg;
+    BinarySource src[1];
+
+    ssh2_fingerprint_blob_hash(blob, bloblen, fingerprint_str);
 
     /*
      * Identify the key algorithm, if possible.
@@ -1530,6 +1551,22 @@ char *ssh2_fingerprint(ssh_key *data)
     ssh_key_public_blob(data, BinarySink_UPCAST(blob));
     char *ret = ssh2_fingerprint_blob(blob->s, blob->len);
     strbuf_free(blob);
+    return ret;
+}
+
+char *ssh2_fingerprint_realpub(ssh_key *data)
+{
+    strbuf *blob = strbuf_new();
+    ssh_key_real_public_blob(data, BinarySink_UPCAST(blob));
+
+    const char *alg = data->vt->ssh_id;
+    char fp [16*3];
+    int bits = ssh_key_public_bits(data->vt, make_ptrlen(blob->s, blob->len));
+    ssh2_fingerprint_blob_hash(blob->s, blob->len, fp);
+    strbuf_free(blob);
+
+    char *ret = dupprintf("%s %d %s", alg, bits, fp);
+
     return ret;
 }
 

@@ -252,10 +252,11 @@ NONSSH   = telnet raw rlogin ldisc pinger
 # SSH back end (putty, plink, pscp, psftp).
 ARITH    = mpint ecc
 SSHCRYPTO = ARITH sshmd5 sshsha sshsh256 sshsh512
-	 + sshrsa sshdss sshecc
+	     + sshrsa sshdss sshecc
          + sshdes sshblowf sshaes sshccp ssharcf
          + sshdh sshcrc sshcrcda
-SSHCOMMON = sshcommon sshrand SSHCRYPTO
+SSHCERT = sshrsacert sshdsscert sshecccert
+SSHCOMMON = sshcommon sshrand SSHCRYPTO SSHCERT
          + sshverstring
          + sshpubk sshzlib
          + sshmac marshal nullplug
@@ -330,15 +331,15 @@ pscp     : [C] pscp winsftp wincons WINSSH BE_SSH SFTP wildcard WINMISC
 psftp    : [C] psftp winsftp wincons WINSSH BE_SSH SFTP wildcard WINMISC
          + psftp.res winnojmp LIBS
 
-pageant  : [G] winpgnt pageant sshrsa sshpubk sshdes ARITH sshmd5 version
-	 + tree234 MISC sshaes sshsha winsecur winpgntc aqsync sshdss sshsh256
-	 + sshsh512 winutils sshecc winmisc winmiscs winhelp conf pageant.res
+pageant  : [G] winpgnt pageant sshrsa sshrsacert sshpubk sshdes ARITH sshmd5 version
+	 + tree234 MISC sshaes sshsha winsecur winpgntc aqsync sshdss sshdsscert sshsh256
+	 + sshsh512 winutils sshecc sshecccert winmisc winmiscs winhelp conf pageant.res
 	 + LIBS
 
 puttygen : [G] winpgen sshrsag sshdssg sshprime sshdes ARITH sshmd5 version
-         + sshrand winnoise sshsha winstore MISC winctrls sshrsa sshdss winmisc
+         + sshrand winnoise sshsha winstore MISC winctrls sshrsa sshrsacert sshdss sshdsscert winmisc
          + sshpubk sshaes sshsh256 sshsh512 IMPORT winutils puttygen.res
-         + tree234 notiming winhelp winnojmp CONF LIBS wintime sshecc
+         + tree234 notiming winhelp winnojmp CONF LIBS wintime sshecc sshecccert
          + sshecdsag winsecur winmiscs
 
 pterm    : [X] GTKTERM uxmisc misc ldisc settings uxpty uxsel BE_NONE uxstore
@@ -355,18 +356,18 @@ plink    : [U] uxplink uxcons NONSSH UXSSH U_BE_ALL logging UXMISC uxsignal
          + ux_x11 noterm uxnogtk sessprep cmdline
 
 PUTTYGEN_UNIX = sshrsag sshdssg sshprime sshdes ARITH sshmd5 version
-         + sshrand uxnoise sshsha MISC sshrsa sshdss uxcons uxstore uxmisc
+         + sshrand uxnoise sshsha MISC sshrsa sshrsacert sshdss sshdsscert uxcons uxstore uxmisc
          + sshpubk sshaes sshsh256 sshsh512 IMPORT puttygen.res time tree234
-         + uxgen notiming CONF sshecc sshecdsag uxnogtk
+         + uxgen notiming CONF sshecc sshecccert sshecdsag uxnogtk
 puttygen : [U] cmdgen PUTTYGEN_UNIX
 cgtest   : [UT] cgtest PUTTYGEN_UNIX
 
 pscp     : [U] pscp uxsftp uxcons UXSSH BE_SSH SFTP wildcard UXMISC uxnogtk
 psftp    : [U] psftp uxsftp uxcons UXSSH BE_SSH SFTP wildcard UXMISC uxnogtk
 
-pageant  : [X] uxpgnt uxagentc aqsync pageant sshrsa sshpubk sshdes ARITH
-	 + sshmd5 version tree234 misc sshaes sshsha sshdss sshsh256 sshsh512
-	 + sshecc CONF uxsignal nocproxy nogss be_none x11fwd ux_x11 uxcons
+pageant  : [X] uxpgnt uxagentc aqsync pageant sshrsa sshrsacert sshpubk sshdes ARITH
+	 + sshmd5 version tree234 misc sshaes sshsha sshdss sshdsscert sshsh256 sshsh512
+	 + sshecc sshecccert CONF uxsignal nocproxy nogss be_none x11fwd ux_x11 uxcons
          + gtkask gtkmisc nullplug logging UXMISC uxagentsock utils memory
 
 ptermapp : [XT] GTKTERM uxmisc misc ldisc settings uxpty uxsel BE_NONE uxstore

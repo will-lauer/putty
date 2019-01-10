@@ -421,6 +421,7 @@ void pageant_handle_msg(BinarySink *bs,
 	}
 	break;
       case SSH2_AGENTC_ADD_IDENTITY:
+      case SSH2_AGENTC_ADD_ID_CONSTRAINED:
 	/*
 	 * Add to the list and return SSH_AGENT_SUCCESS, or
 	 * SSH_AGENT_FAILURE if the key was malformed.
@@ -641,6 +642,8 @@ void pageant_init(void)
     pageant_local = true;
     rsakeys = newtree234(cmpkeys_rsa);
     ssh2keys = newtree234(cmpkeys_ssh2);
+
+    ssh_find_key = pageant_find_ssh2_key;
 }
 
 RSAKey *pageant_nth_ssh1_key(int i)
@@ -689,6 +692,15 @@ bool pageant_delete_ssh2_key(ssh2_userkey *skey)
         return false;
     assert(deleted == skey);
     return true;
+}
+
+ssh2_userkey* pageant_find_ssh2_key(ptrlen publicblob)
+{
+    ssh2_userkey *key = NULL;
+
+    key = find234(ssh2keys, &publicblob, cmpkeys_ssh2_asymm);
+
+    return key;
 }
 
 /* ----------------------------------------------------------------------
@@ -1009,6 +1021,7 @@ int pageant_add_keyfile(Filename *filename, const char *passphrase,
 {
     RSAKey *rkey = NULL;
     ssh2_userkey *skey = NULL;
+    ssh2_userkey *ckey = NULL;
     bool needs_pass;
     int ret;
     int attempts;
@@ -1225,6 +1238,38 @@ int pageant_add_keyfile(Filename *filename, const char *passphrase,
      */
 
     /*
+     * attempt to load a certificate
+     */
+    Filename certfilename;
+    certfilename.path = dupprintf("%s-cert", filename->path);
+    FILE* certfile = f_open(&certfilename, "rb", false);
+    sfree(certfilename.path);
+
+    if (certfile) {
+        strbuf* certblob = strbuf_new();
+        char* certalg = NULL;
+        char* comment = NULL;
+        const char* errstring = NULL;
+        if (openssh_loadpub(certfile, &certalg, BinarySink_UPCAST(certblob), &comment, &errstring)) {
+            strbuf* privblob = strbuf_new();
+            ssh_key_private_blob(skey->key, BinarySink_UPCAST(privblob));
+            const ssh_keyalg* alg = find_pubkey_alg(certalg);
+            if (alg) {
+                ssh_key* cert = ssh_key_new_priv(alg, ptrlen_from_strbuf(certblob), ptrlen_from_strbuf(privblob));
+                if (cert) {
+                    ckey = snew(struct ssh2_userkey);
+                    ckey->key = cert;
+                    ckey->comment = comment;
+                }
+                strbuf_free(privblob);
+            }
+        }
+        strbuf_free(certblob);
+        fclose(certfile);
+        certfile = NULL;
+    }
+
+    /*
      * If the key was successfully decrypted, save the passphrase for
      * use with other keys we try to load.
      */
@@ -1302,13 +1347,207 @@ int pageant_add_keyfile(Filename *filename, const char *passphrase,
             }
 
 	    sfree(response);
+
+	    /* add cert here if it was found */
+
+	    if (ckey != NULL) {
+	        request = strbuf_new_for_agent_query();
+	        put_byte(request, SSH2_AGENTC_ADD_IDENTITY);
+	        put_stringz(request, ssh_key_ssh_id(ckey->key));
+	        ssh_key_openssh_blob(ckey->key, BinarySink_UPCAST(request));
+	        put_stringz(request, ckey->comment);
+	        agent_query_synchronous(request, &vresponse, &resplen);
+	        strbuf_free(request);
+
+	        response = vresponse;
+	        if (resplen < 5 || response[4] != SSH_AGENT_SUCCESS) {
+	            *retstr = dupstr("The already running Pageant "
+	                    "refused to add the certificate.");
+                sfree(response);
+                return PAGEANT_ACTION_FAILURE;
+            }
+
+	        sfree(response);
+	    }
+
 	} else {
 	    if (!pageant_add_ssh2_key(skey)) {
                 ssh_key_free(skey->key);
 		sfree(skey);	       /* already present, don't waste RAM */
 	    }
+
+	    /* add cert here if it was found */
+        if (ckey != NULL && !pageant_add_ssh2_key(ckey)) {
+            ssh_key_free(ckey->key);
+            sfree(ckey->comment);
+            sfree(ckey);           /* already present, don't waste RAM */
+        }
+
 	}
     }
+    return PAGEANT_ACTION_OK;
+}
+
+int pageant_add_certfile(Filename *filename, char ** retstr)
+{
+    int type;
+    const char *error = NULL;
+
+    *retstr = NULL;
+    type = key_type(filename);
+    if (type != SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH) {
+        *retstr = dupprintf("Couldn't load this certificate (%s)", key_type_to_str(type));
+        return PAGEANT_ACTION_FAILURE;
+    }
+
+    /*
+     * See if the key is already loaded
+     */
+    strbuf *blob = strbuf_new();
+    char *algname, *comment;
+    {
+        unsigned char *keylist, *p;
+        int keylistlen, nkeys;
+
+        /* reserve space for the size */
+        put_uint32(blob, 0);
+        if (!ssh2_userkey_loadpub(filename, &algname, BinarySink_UPCAST(blob), &comment, &error)) {
+            *retstr = dupprintf("Couldn't load certificate(%s)", error);
+            if (comment) sfree(comment);
+            strbuf_free(blob);
+            return PAGEANT_ACTION_FAILURE;
+	}
+        PUT_32BIT(blob->s, blob->len-4);
+        keylist = pageant_get_keylist2(&keylistlen);
+
+        if (keylist) {
+            if (keylistlen < 4) {
+                *retstr = dupstr("Received broken key list from agent");
+                sfree(keylist);
+                if (comment) sfree(comment);
+                strbuf_free(blob);
+                return PAGEANT_ACTION_FAILURE;
+    }
+            nkeys = toint(GET_32BIT(keylist));
+            if (nkeys < 0) {
+                *retstr = dupstr("Received invalid number of keys from agent");
+                sfree(keylist);
+                if (comment) sfree(comment);
+                strbuf_free(blob);
+                return PAGEANT_ACTION_FAILURE;
+            }
+            p = keylist + 4; /* skip the size */
+            keylistlen -= 4;
+
+            for (int ii = 0; ii < nkeys; ++ii) {
+                if (!memcmp(blob->s, p, blob->len)) {
+                    /* key is already present */
+                    sfree(keylist);
+                    strbuf_free(blob);
+                    if (comment) sfree(comment);
+                    return PAGEANT_ACTION_OK;
+                } else {
+                    /* not our key, skip to the next one */
+                    /* skip the public blob */
+                    int n;
+                    if (keylistlen < 4) {
+                        *retstr = dupstr("Received broken key list from agent");
+                        sfree(keylist);
+                        if (comment) sfree(comment);
+                        strbuf_free(blob);
+                        return PAGEANT_ACTION_FAILURE;
+                    }
+                    n = GET_32BIT(p);
+                    p += 4;
+                    keylistlen -= 4;
+                    if ( n < 0 || n > keylistlen) {
+                        *retstr = dupstr("Received broken key list from agent");
+                        sfree(keylist);
+                        if (comment) sfree(comment);
+                        strbuf_free(blob);
+                        return PAGEANT_ACTION_FAILURE;
+                    }
+                    p += n;
+                    keylistlen -= n;
+                    /* skip the comment */
+                    if (keylistlen < 4) {
+                        *retstr = dupstr("Received broken key list from agent");
+                        sfree(keylist);
+                        if (comment) sfree(comment);
+                        strbuf_free(blob);
+                        return PAGEANT_ACTION_FAILURE;
+                    }
+                    n = GET_32BIT(p);
+                    p += 4;
+                    keylistlen -= 4;
+                    if ( n < 0 || n > keylistlen) {
+                        *retstr = dupstr("Received broken key list from agent");
+                        sfree(keylist);
+                        if (comment) sfree(comment);
+                        strbuf_free(blob);
+                        return PAGEANT_ACTION_FAILURE;
+                    }
+                    p += n;
+                    keylistlen -= n;
+                }
+            }
+        }
+    }
+
+    /* if we get here, we didn't find the certificate yet, try to add it */
+
+    /* first load the key */
+    const ssh_keyalg *alg = find_pubkey_alg(algname);
+    ssh2_userkey *cert = snew(ssh2_userkey);
+    cert->comment = comment ? comment : dupstr(filename->path ? filename->path : "");
+
+    ptrlen pubkey = make_ptrlen(blob->s+4, blob->len-4);
+    /* certs don't store the priv key, so pass nothing */
+    cert->key = ssh_key_new_priv(alg, pubkey, ptrlen_from_asciz(""));
+    strbuf_free(blob);
+
+    if (!cert->key) {
+        *retstr = dupstr("Couldn't load this certificate");
+        sfree(cert->comment);
+        sfree(cert);
+        return PAGEANT_ACTION_FAILURE;
+    }
+
+    if (!pageant_local) {
+        /* we aren't the real agent, so stream the cert to the real one */
+        strbuf *request = strbuf_new_for_agent_query();
+        unsigned char *response;
+        void *vresponse;
+        int resplen;
+
+        put_byte(request, SSH2_AGENTC_ADD_IDENTITY);
+        put_stringz(request, ssh_key_ssh_id(cert->key));
+        ssh_key_openssh_blob(cert->key, BinarySink_UPCAST(request));
+        put_stringz(request, cert->comment);
+        agent_query_synchronous(request, &vresponse, &resplen);
+        sfree(cert->comment);
+        ssh_key_free(cert->key);
+        sfree(cert);
+        strbuf_free(request);
+
+        response = vresponse;
+        if (resplen < 5 || response[4] != SSH_AGENT_SUCCESS) {
+            *retstr = dupstr("The already running Pageant "
+                    "refused to add the certificate.");
+            sfree(response);
+            return PAGEANT_ACTION_FAILURE;
+        }
+
+        sfree(response);
+    } else {
+        if (!pageant_add_ssh2_key(cert)) {
+            ssh_key_free(cert->key);
+            sfree(cert->key);
+            sfree(cert->comment);
+            sfree(cert);
+        }
+    }
+
     return PAGEANT_ACTION_OK;
 }
 

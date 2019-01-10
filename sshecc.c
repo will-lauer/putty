@@ -252,15 +252,6 @@ static struct ec_curve *ec_ed25519(void)
  * Public point from private
  */
 
-struct ecsign_extra {
-    struct ec_curve *(*curve)(void);
-    const ssh_hashalg *hash;
-
-    /* These fields are used by the OpenSSH PEM format importer/exporter */
-    const unsigned char *oid;
-    int oidlen;
-};
-
 WeierstrassPoint *ecdsa_public(mp_int *private_key, const ssh_keyalg *alg)
 {
     const struct ecsign_extra *extra =
@@ -327,7 +318,7 @@ EdwardsPoint *eddsa_public(mp_int *private_key, const ssh_keyalg *alg)
  * Marshalling and unmarshalling functions
  */
 
-static mp_int *BinarySource_get_mp_le(BinarySource *src)
+mp_int *BinarySource_get_mp_le(BinarySource *src)
 {
     return mp_from_bytes_le(get_string(src));
 }
@@ -402,7 +393,7 @@ static WeierstrassPoint *ecdsa_decode(
     return P;
 }
 
-static WeierstrassPoint *BinarySource_get_wpoint(
+WeierstrassPoint *BinarySource_get_wpoint(
     BinarySource *src, const struct ec_curve *curve)
 {
     ptrlen str = get_string(src);
@@ -410,10 +401,8 @@ static WeierstrassPoint *BinarySource_get_wpoint(
         return NULL;
     return ecdsa_decode(str, curve);
 }
-#define get_wpoint(src, curve) \
-    BinarySource_get_wpoint(BinarySource_UPCAST(src), curve)
 
-static void BinarySink_put_wpoint(
+void BinarySink_put_wpoint(
     BinarySink *bs, WeierstrassPoint *point, const struct ec_curve *curve,
     bool bare)
 {
@@ -455,8 +444,6 @@ static void BinarySink_put_wpoint(
     if (!bare)
         put_stringsb(bs, sb);
 }
-#define put_wpoint(bs, point, curve, bare)                              \
-    BinarySink_put_wpoint(BinarySink_UPCAST(bs), point, curve, bare)
 
 static EdwardsPoint *eddsa_decode(ptrlen encoded, const struct ec_curve *curve)
 {
@@ -485,7 +472,7 @@ static EdwardsPoint *eddsa_decode(ptrlen encoded, const struct ec_curve *curve)
     return P;
 }
 
-static EdwardsPoint *BinarySource_get_epoint(
+EdwardsPoint *BinarySource_get_epoint(
     BinarySource *src, const struct ec_curve *curve)
 {
     ptrlen str = get_string(src);
@@ -493,10 +480,8 @@ static EdwardsPoint *BinarySource_get_epoint(
         return NULL;
     return eddsa_decode(str, curve);
 }
-#define get_epoint(src, curve) \
-    BinarySource_get_epoint(BinarySource_UPCAST(src), curve)
 
-static void BinarySink_put_epoint(
+void BinarySink_put_epoint(
     BinarySink *bs, EdwardsPoint *point, const struct ec_curve *curve,
     bool bare)
 {
@@ -520,8 +505,6 @@ static void BinarySink_put_epoint(
     mp_free(x);
     mp_free(y);
 }
-#define put_epoint(bs, point, curve, bare)                      \
-    BinarySink_put_epoint(BinarySink_UPCAST(bs), point, curve, bare)
 
 /* ----------------------------------------------------------------------
  * Exposed ECDSA interface
@@ -1132,6 +1115,7 @@ const ssh_keyalg ssh_ecdsa_ed25519 = {
     eddsa_private_blob,
     eddsa_openssh_blob,
     eddsa_cache_str,
+    ecdsa_public_blob,
 
     ec_shared_pubkey_bits,
 
@@ -1161,6 +1145,7 @@ const ssh_keyalg ssh_ecdsa_nistp256 = {
     ecdsa_private_blob,
     ecdsa_openssh_blob,
     ecdsa_cache_str,
+    ecdsa_public_blob,
 
     ec_shared_pubkey_bits,
 
@@ -1190,6 +1175,7 @@ const ssh_keyalg ssh_ecdsa_nistp384 = {
     ecdsa_private_blob,
     ecdsa_openssh_blob,
     ecdsa_cache_str,
+    ecdsa_public_blob,
 
     ec_shared_pubkey_bits,
 
@@ -1219,6 +1205,7 @@ const ssh_keyalg ssh_ecdsa_nistp521 = {
     ecdsa_private_blob,
     ecdsa_openssh_blob,
     ecdsa_cache_str,
+    ecdsa_public_blob,
 
     ec_shared_pubkey_bits,
 
