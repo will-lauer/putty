@@ -335,7 +335,7 @@ static void BinarySink_put_mp_le_unsigned(BinarySink *bs, mp_int *x)
 #define put_mp_le_unsigned(bs, x) \
     BinarySink_put_mp_le_unsigned(BinarySink_UPCAST(bs), x)
 
-static WeierstrassPoint *ecdsa_decode(
+WeierstrassPoint *ecdsa_decode(
     ptrlen encoded, const struct ec_curve *curve)
 {
     assert(curve->type == EC_WEIERSTRASS);
@@ -445,7 +445,7 @@ void BinarySink_put_wpoint(
         put_stringsb(bs, sb);
 }
 
-static EdwardsPoint *eddsa_decode(ptrlen encoded, const struct ec_curve *curve)
+EdwardsPoint *eddsa_decode(ptrlen encoded, const struct ec_curve *curve)
 {
     assert(curve->type == EC_EDWARDS);
     assert(curve->fieldBits % 8 == 7);

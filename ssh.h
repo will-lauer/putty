@@ -586,6 +586,8 @@ struct eddsa_cert_key {
 
 WeierstrassPoint *ecdsa_public(mp_int *private_key, const ssh_keyalg *alg);
 EdwardsPoint *eddsa_public(mp_int *private_key, const ssh_keyalg *alg);
+WeierstrassPoint *ecdsa_decode(ptrlen encoded, const struct ec_curve *curve);
+EdwardsPoint *eddsa_decode(ptrlen encoded, const struct ec_curve *curve);
 WeierstrassPoint *BinarySource_get_wpoint(
     BinarySource *src, const struct ec_curve *curve);
 #define get_wpoint(src, curve) \
@@ -919,7 +921,7 @@ struct ssh_keyalg {
 #define ssh_key_private_blob(key, bs) ((key)->vt->private_blob(key, bs))
 #define ssh_key_openssh_blob(key, bs) ((key)->vt->openssh_blob(key, bs))
 #define ssh_key_cache_str(key) ((key)->vt->cache_str(key))
-#define ssh_key_real_public_blob(key, bs) ((*(key))->real_public_blob(key, bs))
+#define ssh_key_real_public_blob(key, bs) ((key)->vt->real_public_blob(key, bs))
 
 #define ssh_key_public_bits(alg, blob) ((alg)->pubkey_bits(alg, blob))
 
@@ -1039,6 +1041,8 @@ extern const ssh_keyalg ssh_ecdsa_cert_nistp256;
 extern const ssh_keyalg ssh_ecdsa_cert_nistp384;
 extern const ssh_keyalg ssh_ecdsa_cert_nistp521;
 extern const ssh_keyalg ssh_ecdsa_cert_ed25519;
+extern const ssh_keyalg ssh_rsa_pkcs11;
+extern const ssh_keyalg ssh_ecds_pkcs11;
 extern const ssh2_macalg ssh_hmac_md5;
 extern const ssh2_macalg ssh_hmac_sha1;
 extern const ssh2_macalg ssh_hmac_sha1_buggy;
@@ -1539,6 +1543,8 @@ enum {
 #define SSH2_AGENTC_ADD_IDENTITY                17
 #define SSH2_AGENTC_REMOVE_IDENTITY             18
 #define SSH2_AGENTC_REMOVE_ALL_IDENTITIES       19
+#define SSH2_AGENTC_ADD_SMARTCARD_KEY           20
+#define SSH2_AGENTC_REMOVE_SMARTCARD_KEY        21
 #define SSH2_AGENTC_ADD_ID_CONSTRAINED          25
 
 /*

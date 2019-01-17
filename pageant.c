@@ -10,6 +10,7 @@
 #include "mpint.h"
 #include "ssh.h"
 #include "pageant.h"
+#include "sshpkcs11.h"
 
 /*
  * We need this to link with the RSA code, because rsa_ssh1_encrypt()
@@ -33,7 +34,7 @@ static bool pageant_local = false;
 /*
  * rsakeys stores SSH-1 RSA keys. ssh2keys stores all SSH-2 keys.
  */
-static tree234 *rsakeys, *ssh2keys;
+static tree234 *rsakeys, *ssh2keys, *pkcs11providers, *pkcs11keys;
 
 /*
  * Key comparison function for the 2-3-4 tree of RSA keys.
@@ -104,6 +105,17 @@ static int cmpkeys_ssh2(void *av, void *bv)
     return toret;
 }
 
+/*
+ * Main provider comparison function for the 2-3-4 tree of pkcs11 providers
+ */
+static int cmpproviders(void *av, void *bv)
+{
+    struct ssh2_pkcs11_provider* aprov = (struct ssh2_pkcs11_provider*)av;
+    struct ssh2_pkcs11_provider* bprov = (struct ssh2_pkcs11_provider*)bv;
+
+    return strcmp(aprov->id, bprov->id);
+}
+
 void pageant_make_keylist1(BinarySink *bs)
 {
     int i;
@@ -121,12 +133,18 @@ void pageant_make_keylist2(BinarySink *bs)
     int i;
     ssh2_userkey *key;
 
-    put_uint32(bs, count234(ssh2keys));
+    put_uint32(bs, count234(ssh2keys) + count234(pkcs11keys));
+    for (i = 0; NULL != (key = index234(pkcs11keys, i)); i++) {
+        strbuf *blob = strbuf_new();
+        ssh_key_public_blob(key->key, BinarySink_UPCAST(blob));
+        put_stringsb(bs, blob);
+        put_stringz(bs, key->comment);
+    }
     for (i = 0; NULL != (key = index234(ssh2keys, i)); i++) {
         strbuf *blob = strbuf_new();
         ssh_key_public_blob(key->key, BinarySink_UPCAST(blob));
         put_stringsb(bs, blob);
-	put_stringz(bs, key->comment);
+        put_stringz(bs, key->comment);
     }
 }
 
@@ -326,8 +344,11 @@ void pageant_handle_msg(BinarySink *bs,
                 plog(logctx, logfn, "requested key: %s", fingerprint);
                 sfree(fingerprint);
             }
-            key = find234(ssh2keys, &keyblob, cmpkeys_ssh2_asymm);
-	    if (!key) {
+            /* look in smartcard keys first, then regular keys */
+            key = find234(pkcs11keys, &keyblob, cmpkeys_ssh2_asymm);
+            if (!key)
+                key = find234(ssh2keys, &keyblob, cmpkeys_ssh2_asymm);
+            if (!key) {
                 pageant_failure_msg(bs, "key not found", logctx, logfn);
                 return;
             }
@@ -622,6 +643,72 @@ void pageant_handle_msg(BinarySink *bs,
             plog(logctx, logfn, "reply: SSH_AGENT_SUCCESS");
 	}
 	break;
+      case SSH2_AGENTC_ADD_SMARTCARD_KEY:
+    /*
+     * Add keys from PKCS11 smart card
+     */
+    {
+        ptrlen readerid;
+        ptrlen pin;
+
+        plog(logctx, logfn, "request: SSH2_AGENTC_ADD_SMARTCARD_KEY");
+
+        readerid = get_string(msg);
+        pin = get_string(msg);
+
+        if (get_err(msg)) {
+            pageant_failure_msg(bs, "unable to decode request",
+                                logctx, logfn);
+            return;
+        }
+
+        char *retstr;
+        int retval;
+        char *filename = mkstr(readerid);
+        char *pinstr = mkstr(pin);
+        if ((retval = pageant_add_provider(filename, pinstr, &retstr)) == PAGEANT_ACTION_OK) {
+            keylist_update();
+            put_byte(bs, SSH_AGENT_SUCCESS);
+            plog(logctx, logfn, "reply: SSH_AGENT_SUCCESS");
+        } else {
+            pageant_failure_msg(bs, retstr, logctx, logfn);
+        }
+        sfree(filename);
+        sfree(pinstr);
+    }
+    break;
+      case SSH2_AGENTC_REMOVE_SMARTCARD_KEY:
+    /*
+     * Remove PKCS11 smart card and all associated keys
+     */
+    {
+        ptrlen readerid;
+
+        plog(logctx, logfn, "request: SSH2_AGENTC_REMOVE_SMARTCARD_KEY");
+
+        readerid = get_string(msg);
+        get_string(msg); /* pin is ignored for remove */
+
+        if (get_err(msg)) {
+            pageant_failure_msg(bs, "unable to decode request",
+                                logctx, logfn);
+            return;
+        }
+
+        int retval;
+        char *retstr;
+        char *filename = mkstr(readerid);
+        if ((retval = pageant_delete_provider(filename, &retstr)) == PAGEANT_ACTION_OK) {
+            plog(logctx, logfn, "found with id: %s", filename);
+            keylist_update();
+            put_byte(bs, SSH_AGENT_SUCCESS);
+            plog(logctx, logfn, "reply: SSH_AGENT_SUCCESS");
+        } else {
+            pageant_failure_msg(bs, retstr, logctx, logfn);
+        }
+        sfree(filename);
+    }
+    break;
       default:
         plog(logctx, logfn, "request: unknown message type %d", type);
         pageant_failure_msg(bs, "unrecognised message", logctx, logfn);
@@ -642,6 +729,8 @@ void pageant_init(void)
     pageant_local = true;
     rsakeys = newtree234(cmpkeys_rsa);
     ssh2keys = newtree234(cmpkeys_ssh2);
+    pkcs11providers = newtree234(cmpproviders);
+    pkcs11keys = newtree234(cmpkeys_ssh2);
 
     ssh_find_key = pageant_find_ssh2_key;
 }
@@ -654,6 +743,16 @@ RSAKey *pageant_nth_ssh1_key(int i)
 ssh2_userkey *pageant_nth_ssh2_key(int i)
 {
     return index234(ssh2keys, i);
+}
+
+struct ssh2_userkey *pageant_nth_pkcs11_key(int i)
+{
+    return index234(pkcs11keys, i);
+}
+
+struct ssh2_pkcs11_provider *pageant_nth_provider(int i)
+{
+    return index234(pkcs11providers, i);
 }
 
 int pageant_count_ssh1_keys(void)
@@ -698,7 +797,9 @@ ssh2_userkey* pageant_find_ssh2_key(ptrlen publicblob)
 {
     ssh2_userkey *key = NULL;
 
-    key = find234(ssh2keys, &publicblob, cmpkeys_ssh2_asymm);
+    key = find234(pkcs11keys, &publicblob, cmpkeys_ssh2_asymm);
+    if (!key)
+        key = find234(ssh2keys, &publicblob, cmpkeys_ssh2_asymm);
 
     return key;
 }
@@ -1549,6 +1650,77 @@ int pageant_add_certfile(Filename *filename, char ** retstr)
     }
 
     return PAGEANT_ACTION_OK;
+}
+
+int pageant_add_provider(const char* filename, const char* passphrase, char **retstr)
+{
+    int retval = PAGEANT_ACTION_FAILURE;
+    *retstr = NULL;
+
+    struct ssh2_pkcs11_provider *provider = snew(struct ssh2_pkcs11_provider);
+    memset(provider, 0, sizeof(struct ssh2_pkcs11_provider));
+    provider->id = dupstr(filename);
+    provider->pin = ptrlen_from_asciz(dupstr(passphrase ? passphrase : ""));
+
+    if (find234(pkcs11providers, provider, cmpproviders)) {
+        *retstr = "provider already loaded";
+        goto provider_cleanup;
+    }
+
+    int status = pkcs11_add_provider(provider);
+    if (status == PKCS11_FAILED) {
+        *retstr = "smart card setup failed";
+        goto provider_cleanup;
+    } else if (status == PKCS11_NO_KEYS) {
+        *retstr = "no keys found in smart card";
+        goto provider_cleanup;
+    } else if (status == PKCS11_INVAID_PIN) {
+        retval = PAGEANT_ACTION_NEED_PP;
+        goto provider_cleanup;
+    }
+
+    if (add234(pkcs11providers, provider) == provider) {
+        pkcs11_add_keys(provider, pkcs11keys);
+
+        provider = NULL;
+        return PAGEANT_ACTION_OK;
+    } else {
+        *retstr = "provider already present";
+    }
+
+    provider_cleanup:
+    if (provider) {
+        pkcs11_free_provider(provider);
+        sfree(provider);
+    }
+
+    return retval;
+}
+
+int pageant_delete_provider(const char *filename, char **retstr)
+{
+    struct ssh2_pkcs11_provider target, *provider;
+    int retval;
+
+    memset(&target, 0, sizeof(struct ssh2_pkcs11_provider));
+    target.id = filename;
+
+    provider = find234(pkcs11providers, &target, cmpproviders);
+    if (!provider) {
+        *retstr = "provider not found";
+        retval = PAGEANT_ACTION_FAILURE;
+    } else {
+        pkcs11_remove_keys(provider, pkcs11keys, cmpkeys_ssh2);
+        del234(pkcs11providers, provider);
+
+        pkcs11_del_provider(provider);
+        pkcs11_free_provider(provider);
+        sfree(provider);
+
+        retval = PAGEANT_ACTION_OK;
+    }
+
+    return retval;
 }
 
 int pageant_enum_keys(pageant_key_enum_fn_t callback, void *callback_ctx,

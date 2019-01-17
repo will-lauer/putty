@@ -58,6 +58,8 @@ void pageant_make_keylist2(BinarySink *);
  */
 RSAKey *pageant_nth_ssh1_key(int i);
 ssh2_userkey *pageant_nth_ssh2_key(int i);
+struct ssh2_userkey *pageant_nth_pkcs11_key(int i);
+struct ssh2_pkcs11_provider *pageant_nth_provider(int i);
 int pageant_count_ssh1_keys(void);
 int pageant_count_ssh2_keys(void);
 bool pageant_add_ssh1_key(RSAKey *rkey);
@@ -65,6 +67,7 @@ bool pageant_add_ssh2_key(ssh2_userkey *skey);
 bool pageant_delete_ssh1_key(RSAKey *rkey);
 bool pageant_delete_ssh2_key(ssh2_userkey *skey);
 ssh2_userkey* pageant_find_ssh2_key(ptrlen publicblob);
+struct ssh2_userkey* pageant_find_ssh2_key(ptrlen publicblob);
 
 /*
  * This callback must be provided by the Pageant front end code.
@@ -125,6 +128,8 @@ enum {
 int pageant_add_keyfile(Filename *filename, const char *passphrase,
                         char **retstr);
 int pageant_add_certfile(Filename *filename, char **retstr);
+int pageant_add_provider(const char *filename, const char *passphrase, char **retstr);
+int pageant_delete_provider(const char *filename, char **retstr);
 void pageant_forget_passphrases(void);
 
 struct pageant_pubkey {

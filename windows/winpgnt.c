@@ -18,6 +18,7 @@
 #include "winsecur.h"
 #include "pageant.h"
 #include "licence.h"
+#include "sshpkcs11.h"
 
 #include <shellapi.h>
 
@@ -262,10 +263,12 @@ void keylist_update(void)
 {
     RSAKey *rkey;
     ssh2_userkey *skey;
+    struct ssh2_pkcs11_provider *provider;
     int i;
 
     if (keylist) {
 	SendDlgItemMessage(keylist, 100, LB_RESETCONTENT, 0, 0);
+    SendDlgItemMessage(keylist, 105, LB_RESETCONTENT, 0, 0);
 	for (i = 0; NULL != (rkey = pageant_nth_ssh1_key(i)); i++) {
 	    char *listentry, *fp, *p;
 
@@ -353,7 +356,56 @@ void keylist_update(void)
 			       (LPARAM) listentry);
             sfree(listentry);
 	}
+	/* add pkcs11 keys */
+    for (i = 0; NULL != (skey = pageant_nth_pkcs11_key(i)); i++) {
+        char *listentry, *p;
+        int pos;
+
+        p = ssh2_fingerprint_realpub(skey->key);
+        listentry = dupprintf("%s\t%s", p, skey->comment);
+        sfree(p);
+
+        pos = 0;
+        while (1) {
+            pos += strcspn(listentry + pos, " :");
+            if (listentry[pos] == ':' || !listentry[pos])
+                break;
+            listentry[pos++] = '\t';
+        }
+        if (ssh_key_alg(skey->key) != &ssh_rsa_pkcs11) {
+            /*
+             * Remove the bit-count field, which is between the
+             * first and second \t.
+             */
+            int outpos;
+            pos = 0;
+            while (listentry[pos] && listentry[pos] != '\t')
+                pos++;
+            outpos = pos;
+            pos++;
+            while (listentry[pos] && listentry[pos] != '\t')
+                pos++;
+            while (1) {
+                if ((listentry[outpos] = listentry[pos]) == '\0')
+                    break;
+                outpos++;
+                pos++;
+            }
+        }
+
+        SendDlgItemMessage(keylist, 100, LB_ADDSTRING, 0,
+                   (LPARAM) listentry);
+            sfree(listentry);
+    }
+
+    /* add providers */
+    for (i = 0; NULL != (provider = pageant_nth_provider(i)); i++) {
+        SendDlgItemMessage(keylist, 105, LB_ADDSTRING, 0, (LPARAM) provider->id);
+    }
+
+
 	SendDlgItemMessage(keylist, 100, LB_SETCURSEL, (WPARAM) - 1, 0);
+    SendDlgItemMessage(keylist, 105, LB_SETCURSEL, (WPARAM) - 1, 0);
     }
 }
 
@@ -438,6 +490,58 @@ static void win_add_certfile(Filename *filename)
 
     done:
     sfree(err);
+    return;
+}
+
+static void win_add_provider(Filename* filename)
+{
+    char *err;
+    int ret;
+    char *passphrase = NULL;
+
+    ret = pageant_add_provider(filename->path, NULL, &err);
+    if (ret == PAGEANT_ACTION_OK) {
+        goto done;
+    } else if (ret == PAGEANT_ACTION_FAILURE) {
+        goto error;
+    }
+
+    /* if we get here, we need a pin/passphrase */
+    while (1) {
+        INT_PTR dlgret;
+        struct PassphraseProcStruct pps;
+
+        pps.passphrase = &passphrase;
+        pps.comment = err;
+        dlgret = DialogBoxParam(hinst, MAKEINTRESOURCE(210),
+                                NULL, PassphraseProc, (LPARAM) &pps);
+        passphrase_box = NULL;
+
+        if (!dlgret)
+            goto done;             /* operation cancelled */
+
+        sfree(err);
+
+        assert(passphrase != NULL);
+
+        ret = pageant_add_provider(filename->path, passphrase, &err);
+        if (ret == PAGEANT_ACTION_OK) {
+            goto done;
+        } else if (ret == PAGEANT_ACTION_FAILURE) {
+            goto error;
+        }
+
+        smemclr(passphrase, strlen(passphrase));
+        sfree(passphrase);
+        passphrase = NULL;
+    }
+
+    /* now cleanup and handle errors */
+    error:
+    message_box(err, APPNAME, MB_OK | MB_ICONERROR,
+            HELPCTXID(errors_cantloadkey));
+
+    done:
     return;
 }
 
@@ -529,6 +633,55 @@ static void prompt_add_certfile(void)
                 char *filename = dupcat(dir, "\\", filewalker, NULL);
                 Filename *fn = filename_from_str(filename);
                 win_add_certfile(fn);
+                filename_free(fn);
+                sfree(filename);
+                filewalker += strlen(filewalker) + 1;
+            }
+        }
+
+        keylist_update();
+    }
+    sfree(filelist);
+}
+
+/*
+ * Prompt for a pkcs11 provider to add, and add it.
+ */
+static void prompt_add_provider(void)
+{
+    OPENFILENAME of;
+    char *filelist = snewn(8192, char);
+
+    if (!certpath) certpath = filereq_new();
+    memset(&of, 0, sizeof(of));
+    of.hwndOwner = hwnd;
+    of.lpstrFilter = FILTER_PROVIDER_FILES;
+    of.lpstrCustomFilter = NULL;
+    of.nFilterIndex = 1;
+    of.lpstrFile = filelist;
+    *filelist = '\0';
+    of.nMaxFile = 8192;
+    of.lpstrFileTitle = NULL;
+    of.lpstrTitle = "Select PKCS11 Provider Library";
+    of.Flags = OFN_ALLOWMULTISELECT | OFN_EXPLORER;
+    if (request_file(certpath, &of, true, false)) {
+        if(strlen(filelist) > of.nFileOffset) {
+            /* Only one filename returned? */
+            Filename *fn = filename_from_str(filelist);
+            win_add_provider(fn);
+            filename_free(fn);
+        } else {
+            /* we are returned a bunch of strings, end to
+             * end. first string is the directory, the
+             * rest the filenames. terminated with an
+             * empty string.
+             */
+            char *dir = filelist;
+            char *filewalker = filelist + strlen(dir) + 1;
+            while (*filewalker != '\0') {
+                char *filename = dupcat(dir, "\\", filewalker, NULL);
+                Filename *fn = filename_from_str(filename);
+                win_add_provider(fn);
                 filename_free(fn);
                 sfree(filename);
                 filewalker += strlen(filewalker) + 1;
@@ -681,6 +834,51 @@ static INT_PTR CALLBACK KeyListProc(HWND hwnd, UINT msg,
 		launch_help(hwnd, WINHELP_CTX_pageant_general);
             }
 	    return 0;
+	  case 106: /* add provider */
+	      if (HIWORD(wParam) == BN_CLICKED ||
+	              HIWORD(wParam) == BN_DOUBLECLICKED) {
+	          if (passphrase_box) {
+	              MessageBeep(MB_ICONERROR);
+	              SetForegroundWindow(passphrase_box);
+	              break;
+	          }
+	          prompt_add_provider();
+	}
+	return 0;
+	  case 107:             /* remove provider */
+	      if (HIWORD(wParam) == BN_CLICKED ||
+	              HIWORD(wParam) == BN_DOUBLECLICKED) {
+	          int i;
+	          int *selectedArray;
+
+	          /* get the number of items selected in the list */
+	          int numSelected =
+	                  SendDlgItemMessage(hwnd, 105, LB_GETSELCOUNT, 0, 0);
+
+	          /* none selected? that was silly */
+	          if (numSelected == 0) {
+	              MessageBeep(0);
+	              break;
+	          }
+
+	          /* get item indices in an array */
+	          selectedArray = snewn(numSelected, int);
+	          SendDlgItemMessage(hwnd, 105, LB_GETSELITEMS, numSelected,
+	                  (WPARAM) selectedArray);
+
+	          for (i = 0; i < numSelected; i++) {
+                  char *retstr = NULL;
+	              int sz = SendDlgItemMessage(hwnd, 105, LB_GETTEXTLEN, selectedArray[i], (LPARAM) NULL);
+	              char *name = snewn(sz+1, char);
+	              SendDlgItemMessage(hwnd,105, LB_GETTEXT, selectedArray[i], (LPARAM) name);
+	              pageant_delete_provider(name, &retstr);
+	              sfree(name);
+	          }
+
+	          sfree(selectedArray);
+	          keylist_update();
+	      }
+	      return 0;
 	}
 	return 0;
       case WM_HELP:
