@@ -90,6 +90,7 @@ typedef struct PortFwdManager PortFwdManager;
 typedef struct PortFwdRecord PortFwdRecord;
 typedef struct ConnectionLayer ConnectionLayer;
 
+typedef struct prng prng;
 typedef struct ssh_hashalg ssh_hashalg;
 typedef struct ssh_hash ssh_hash;
 typedef struct ssh_kex ssh_kex;
@@ -102,11 +103,9 @@ typedef struct ssh_compression_alg ssh_compression_alg;
 typedef struct ssh2_userkey ssh2_userkey;
 typedef struct ssh2_macalg ssh2_macalg;
 typedef struct ssh2_mac ssh2_mac;
-typedef struct ssh2_cipheralg ssh2_cipheralg;
-typedef struct ssh2_cipher ssh2_cipher;
+typedef struct ssh_cipheralg ssh_cipheralg;
+typedef struct ssh_cipher ssh_cipher;
 typedef struct ssh2_ciphers ssh2_ciphers;
-typedef struct ssh1_cipheralg ssh1_cipheralg;
-typedef struct ssh1_cipher ssh1_cipher;
 typedef struct dh_ctx dh_ctx;
 typedef struct ecdh_key ecdh_key;
 

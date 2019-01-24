@@ -51,7 +51,7 @@ struct ssh1_login_state {
     bool authed;
     RSAKey key;
     mp_int *challenge;
-    ptrlen comment;
+    strbuf *agent_comment;
     int dlgret;
     Filename *keyfile;
     RSAKey servkey, hostkey;
@@ -95,6 +95,7 @@ PacketProtocolLayer *ssh1_login_new(
     s->savedhost = dupstr(host);
     s->savedport = port;
     s->successor_layer = successor_layer;
+    s->agent_comment = strbuf_new();
     return &s->ppl;
 }
 
@@ -113,6 +114,7 @@ static void ssh1_login_free(PacketProtocolLayer *ppl)
     if (s->publickey_blob)
         strbuf_free(s->publickey_blob);
     sfree(s->publickey_comment);
+    strbuf_free(s->agent_comment);
     if (s->cur_prompt)
         free_prompts(s->cur_prompt);
     sfree(s->agent_response_to_free);
@@ -199,8 +201,7 @@ static void ssh1_login_process_queue(PacketProtocolLayer *ppl)
     ssh1_compute_session_id(s->session_id, s->cookie,
                             &s->hostkey, &s->servkey);
 
-    for (i = 0; i < 32; i++)
-        s->session_key[i] = random_byte();
+    random_read(s->session_key, 32);
 
     /*
      * Verify that the `bits' and `bytes' parameters match.
@@ -362,9 +363,9 @@ static void ssh1_login_process_queue(PacketProtocolLayer *ppl)
     ssh_bpp_handle_output(s->ppl.bpp);
 
     {
-        const ssh1_cipheralg *cipher =
-            (s->cipher_type == SSH_CIPHER_BLOWFISH ? &ssh1_blowfish :
-             s->cipher_type == SSH_CIPHER_DES ? &ssh1_des : &ssh1_3des);
+        const ssh_cipheralg *cipher =
+            (s->cipher_type == SSH_CIPHER_BLOWFISH ? &ssh_blowfish_ssh1 :
+             s->cipher_type == SSH_CIPHER_DES ? &ssh_des : &ssh_3des_ssh1);
         ssh1_bpp_new_cipher(s->ppl.bpp, cipher, s->session_key);
     }
 
@@ -507,7 +508,8 @@ static void ssh1_login_process_queue(PacketProtocolLayer *ppl)
                     get_rsa_ssh1_pub(s->asrc, &s->key,
                                      RSA_SSH1_EXPONENT_FIRST);
                     end = s->asrc->pos;
-                    s->comment = get_string(s->asrc);
+                    s->agent_comment->len = 0;
+                    put_datapl(s->agent_comment, get_string(s->asrc));
                     if (get_err(s->asrc)) {
                         ppl_logevent("Pageant key list packet was truncated");
                         break;
@@ -570,7 +572,6 @@ static void ssh1_login_process_queue(PacketProtocolLayer *ppl)
                                     s->ppl.bpp, SSH1_CMSG_AUTH_RSA_RESPONSE);
                                 put_data(pkt, ret + 5, 16);
                                 pq_push(s->ppl.out_pq, pkt);
-                                sfree((char *)ret);
                                 crMaybeWaitUntilV(
                                     (pktin = ssh1_login_pop(s))
                                     != NULL);
@@ -578,10 +579,12 @@ static void ssh1_login_process_queue(PacketProtocolLayer *ppl)
                                     ppl_logevent("Pageant's response "
                                                  "accepted");
                                     if (flags & FLAG_VERBOSE) {
+                                        ptrlen comment = ptrlen_from_strbuf(
+                                            s->agent_comment);
                                         ppl_printf("Authenticated using RSA "
                                                    "key \"%.*s\" from "
-                                                   "agent\r\n", PTRLEN_PRINTF(
-                                                       s->comment));
+                                                   "agent\r\n",
+                                                   PTRLEN_PRINTF(comment));
                                     }
                                     s->authed = true;
                                 } else
@@ -737,11 +740,10 @@ static void ssh1_login_process_queue(PacketProtocolLayer *ppl)
                     }
 
                     {
-                        struct MD5Context md5c;
-                        MD5Init(&md5c);
-                        put_data(&md5c, buffer, 32);
-                        put_data(&md5c, s->session_id, 16);
-                        MD5Final(buffer, &md5c);
+                        ssh_hash *h = ssh_hash_new(&ssh_md5);
+                        put_data(h, buffer, 32);
+                        put_data(h, s->session_id, 16);
+                        ssh_hash_final(h, buffer);
                     }
 
                     pkt = ssh_bpp_new_pktout(
@@ -983,10 +985,8 @@ static void ssh1_login_process_queue(PacketProtocolLayer *ppl)
                         put_stringz(pkt, s->cur_prompt->prompts[0]->result);
                         pq_push(s->ppl.out_pq, pkt);
                     } else {
-                        int j;
                         strbuf *random_data = strbuf_new();
-                        for (j = 0; j < i; j++)
-                            put_byte(random_data, random_byte());
+                        random_read(strbuf_append(random_data, i), i);
 
                         pkt = ssh_bpp_new_pktout(s->ppl.bpp, SSH1_MSG_IGNORE);
                         put_stringsb(pkt, random_data);
@@ -1006,9 +1006,8 @@ static void ssh1_login_process_queue(PacketProtocolLayer *ppl)
                 ppl_logevent("Sending length-padded password");
                 pkt = ssh_bpp_new_pktout(s->ppl.bpp, s->pwpkt_type);
                 put_asciz(padded_pw, s->cur_prompt->prompts[0]->result);
-                do {
-                    put_byte(padded_pw, random_byte());
-                } while (padded_pw->len % 64 != 0);
+                size_t pad = 63 & -padded_pw->len;
+                random_read(strbuf_append(padded_pw, pad), pad);
                 put_stringsb(pkt, padded_pw);
                 pq_push(s->ppl.out_pq, pkt);
             } else {

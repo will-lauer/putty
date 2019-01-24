@@ -682,14 +682,14 @@ int main(int argc, char **argv)
 	else
 	    strftime(default_comment, 30, "rsa-key-%Y%m%d", &tm);
 
-	random_ref();
 	entropy = get_random_data(bits / 8, random_device);
 	if (!entropy) {
 	    fprintf(stderr, "puttygen: failed to collect entropy, "
 		    "could not generate key\n");
 	    return 1;
 	}
-	random_add_heavynoise(entropy, bits / 8);
+	random_setup_special();
+        random_reseed(make_ptrlen(entropy, bits / 8));
 	smemclr(entropy, bits/8);
 	sfree(entropy);
 
@@ -1064,7 +1064,6 @@ int main(int argc, char **argv)
     }
 
     if (ssh1key) {
-	sfree(ssh1key->comment);
 	freersakey(ssh1key);
     }
     if (ssh2key) {

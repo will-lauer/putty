@@ -977,7 +977,7 @@ static void ecdsa_sign(ssh_key *key, ptrlen data,
     mp_int *k;
     {
         unsigned char digest[20];
-        SHA_Simple(data.ptr, data.len, digest);
+        hash_simple(&ssh_sha1, data, digest);
         k = dss_gen_k(
             "ECDSA deterministic k generator", ek->curve->w.G_order,
             ek->privateKey, digest, sizeof(digest));
@@ -1256,8 +1256,8 @@ static void ssh_ecdhkex_w_setup(ecdh_key *dh)
 static void ssh_ecdhkex_m_setup(ecdh_key *dh)
 {
     strbuf *bytes = strbuf_new();
-    for (size_t i = 0; i < dh->curve->fieldBytes; ++i)
-        put_byte(bytes, random_byte());
+    random_read(strbuf_append(bytes, dh->curve->fieldBytes),
+                dh->curve->fieldBytes);
 
     bytes->u[0] &= 0xF8;
     bytes->u[bytes->len-1] &= 0x7F;

@@ -9,34 +9,6 @@
 
 #include <assert.h>
 
-/*
- * This is the magic ASN.1/DER prefix that goes in the decoded
- * signature. The meaning of it is:
- *
- * 30 21 -- a constructed SEQUENCE of length 0x21
- *    30 09 -- a constructed sub-SEQUENCE of length 9
- *       06 05 -- an object identifier, length 5
- *          2B 0E 03 02 1A -- object id { 1 3 14 3 2 26 }
- *                            (the 1,3 comes from 0x2B = 43 = 40*1+3)
- *       05 00 -- NULL
- *    04 14 -- a primitive OCTET STRING of length 0x14
- *       [0x14 bytes of hash data follows]
- *
- * The object id in the middle there is listed as `id-sha1' in
- * ftp://ftp.rsasecurity.com/pub/pkcs/pkcs-1/pkcs-1v2-1d2.asn (the
- * ASN module for PKCS #1) and its expanded form is as follows:
- *
- * id-sha1                OBJECT IDENTIFIER ::= {
- *    iso(1) identified-organization(3) oiw(14) secsig(3)
- *    algorithms(2) 26 }
- */
-static const unsigned char asn1_weird_stuff[] = {
-    0x30, 0x21, 0x30, 0x09, 0x06, 0x05, 0x2B,
-    0x0E, 0x03, 0x02, 0x1A, 0x05, 0x00, 0x04, 0x14,
-};
-
-#define ASN1_LEN ( (int) sizeof(asn1_weird_stuff) )
-
 struct RSAPKCS11Key {
     mp_int *modulus;
     mp_int *exponent;
@@ -161,15 +133,24 @@ static void rsa2pkcs11_sign(ssh_key *key, ptrlen data, unsigned flags, BinarySin
         return;
     }
     // step 2: build data to sign
-    unsigned char hash[20];
-    unsigned char bytes[ASN1_LEN + sizeof(hash)];
-    int nbytes = sizeof(bytes);
+    unsigned char *bytes;
+    size_t nbytes;
+    const ssh_hashalg *halg;
+    const char *sign_alg_name;
 
-    SHA_Simple(data.ptr, data.len, hash);
+    if (flags & SSH_AGENT_RSA_SHA2_256) {
+        halg = &ssh_sha256;
+        sign_alg_name = "rsa-sha2-256";
+    } else if (flags & SSH_AGENT_RSA_SHA2_512) {
+        halg = &ssh_sha512;
+        sign_alg_name = "rsa-sha2-512";
+    } else {
+        halg = &ssh_sha1;
+        sign_alg_name = "ssh-rsa";
+    }
 
-    /* copy asn1 stuff, skipping first 00 byte */
-    memcpy(bytes, asn1_weird_stuff, sizeof(asn1_weird_stuff));
-    memcpy(bytes + ASN1_LEN, hash, sizeof(hash));
+    nbytes = (mp_get_nbits(rsa->modulus) + 7) / 8;
+    bytes = rsa_pkcs1_signature_string(nbytes, halg, data);
 
     // step 3: sign data
     CK_MECHANISM mech;
@@ -195,12 +176,13 @@ static void rsa2pkcs11_sign(ssh_key *key, ptrlen data, unsigned flags, BinarySin
         goto cleanup_sign;
     }
 
-    put_stringz(bs, "ssh-rsa");
+    put_stringz(bs, sign_alg_name);
     put_string(bs, sig, sigLen);
 
     cleanup_sign:
-    if(sig)
-        sfree(sig);
+    smemclr(bytes, nbytes);
+    sfree(bytes);
+    sfree(sig);
 }
 
 const ssh_keyalg ssh_rsa_pkcs11 = {

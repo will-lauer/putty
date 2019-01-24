@@ -11,6 +11,14 @@
 
 #define BLKSIZE 128
 
+typedef struct {
+    uint64_t h[8];
+    unsigned char block[BLKSIZE];
+    int blkused;
+    uint64_t lenhi, lenlo;
+    BinarySink_IMPLEMENTATION;
+} SHA512_State;
+
 /*
  * Arithmetic implementations. Note that AND, XOR and NOT can
  * overlap destination with one source, but the others can't.
@@ -335,7 +343,8 @@ static void sha512_final(ssh_hash *hash, unsigned char *output)
 }
 
 const ssh_hashalg ssh_sha512 = {
-    sha512_new, sha512_copy, sha512_final, sha512_free, 64, "SHA-512"
+    sha512_new, sha512_copy, sha512_final, sha512_free,
+    64, BLKSIZE, HASHALG_NAMES_BARE("SHA-512"),
 };
 
 static ssh_hash *sha384_new(const ssh_hashalg *alg)
@@ -355,5 +364,6 @@ static void sha384_final(ssh_hash *hash, unsigned char *output)
 }
 
 const ssh_hashalg ssh_sha384 = {
-    sha384_new, sha512_copy, sha384_final, sha512_free, 48, "SHA-384"
+    sha384_new, sha512_copy, sha384_final, sha512_free,
+    48, BLKSIZE, HASHALG_NAMES_BARE("SHA-384"),
 };

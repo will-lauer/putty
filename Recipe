@@ -255,7 +255,8 @@ ARITH    = mpint ecc
 SSHCRYPTO = ARITH sshmd5 sshsha sshsh256 sshsh512
 	     + sshrsa sshdss sshecc
          + sshdes sshblowf sshaes sshccp ssharcf
-         + sshdh sshcrc sshcrcda
+         + sshdh sshcrc sshcrcda sshauxcrypt
+         + sshhmac sshprng
 SSHCERT = sshrsacert sshdsscert sshecccert
 SSHCOMMON = sshcommon sshrand SSHCRYPTO SSHCERT
          + sshverstring
@@ -335,13 +336,13 @@ psftp    : [C] psftp winsftp wincons WINSSH BE_SSH SFTP wildcard WINMISC
 pageant  : [G] winpgnt pageant sshrsa sshrsacert sshrsapkcs11 sshpubk sshdes ARITH sshmd5 version
 	 + tree234 MISC sshaes sshsha winsecur winpgntc aqsync sshdss sshdsscert sshsh256
 	 + sshsh512 winutils sshecc sshecccert ssheccpkcs11 sshpkcs11 winmisc winmiscs windlfcn winhelp conf pageant.res
-	 + LIBS
+	 + sshauxcrypt sshhmac LIBS
 
 puttygen : [G] winpgen sshrsag sshdssg sshprime sshdes ARITH sshmd5 version
          + sshrand winnoise sshsha winstore MISC winctrls sshrsa sshrsacert sshrsapkcs11 sshdss sshdsscert winmisc
          + sshpubk sshaes sshsh256 sshsh512 IMPORT winutils puttygen.res
-         + tree234 notiming winhelp winnojmp CONF LIBS wintime sshecc sshecccert ssheccpkcs11
-         + sshecdsag winsecur winmiscs
+         + tree234 notiming winhelp winnojmp CONF LIBS wintime sshecc sshecccert ssheccpkcs11 sshprng
+         + sshecdsag sshauxcrypt sshhmac winsecur winmiscs
 
 pterm    : [X] GTKTERM uxmisc misc ldisc settings uxpty uxsel BE_NONE uxstore
          + uxsignal CHARSET cmdline uxpterm version time xpmpterm xpmptcfg
@@ -356,10 +357,10 @@ puttytel : [X] GTKTERM uxmisc misc ldisc settings uxsel U_BE_NOSSH
 plink    : [U] uxplink uxcons NONSSH UXSSH U_BE_ALL logging UXMISC uxsignal
          + ux_x11 noterm uxnogtk sessprep cmdline
 
-PUTTYGEN_UNIX = sshrsag sshdssg sshprime sshdes ARITH sshmd5 version
+PUTTYGEN_UNIX = sshrsag sshdssg sshprime sshdes ARITH sshmd5 version sshprng
          + sshrand uxnoise sshsha MISC sshrsa sshrsacert sshrsapkcs11 sshdss sshdsscert uxcons uxstore uxmisc
          + sshpubk sshaes sshsh256 sshsh512 IMPORT puttygen.res time tree234
-         + uxgen notiming CONF sshecc sshecccert ssheccpkcs11 sshecdsag uxnogtk
+         + uxgen notiming CONF sshecc sshecccert ssheccpkcs11 sshecdsag uxnogtk sshauxcrypt sshhmac
 puttygen : [U] cmdgen PUTTYGEN_UNIX
 cgtest   : [UT] cgtest PUTTYGEN_UNIX
 
@@ -370,6 +371,7 @@ pageant  : [X] uxpgnt uxagentc aqsync pageant sshrsa sshrsacert sshrsapkcs11 ssh
 	 + sshmd5 version tree234 misc sshaes sshsha sshdss sshdsscert sshsh256 sshsh512
 	 + sshecc sshecccert ssheccpkcs11 sshpkcs11 CONF uxsignal nocproxy nogss be_none x11fwd ux_x11 uxcons
          + gtkask gtkmisc nullplug logging UXMISC uxagentsock utils memory
+	 + sshauxcrypt sshhmac
 
 ptermapp : [XT] GTKTERM uxmisc misc ldisc settings uxpty uxsel BE_NONE uxstore
          + uxsignal CHARSET uxpterm version time xpmpterm xpmptcfg

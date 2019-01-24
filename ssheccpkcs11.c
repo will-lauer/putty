@@ -153,14 +153,11 @@ static void ecpkcs11_sign(ssh_key *key, ptrlen data, unsigned flags, BinarySink 
         return;
     }
     // step 2: build data to sign
-    ssh_hash *hashctx;
     unsigned char digest[512 / 8];
     const struct ecsign_extra* extra = ((const struct ecsign_extra *)(ec->ecalg->extra));
     int digestLen = extra->hash->hlen;
     assert(digestLen <= sizeof(digest));
-    hashctx = ssh_hash_new(extra->hash);
-    put_data(hashctx, data.ptr, data.len);
-    ssh_hash_final(hashctx, digest);
+    hash_simple(extra->hash, data, digest);
 
     // step 3: sign data
     CK_MECHANISM mech;

@@ -115,17 +115,17 @@ FUNC3(void, ecc_edwards_get_affine, val_epoint, out_val_mpint, out_val_mpint)
  * ssh_hash_update is an invention of testcrypt, handled in the real C
  * API by the hash object also functioning as a BinarySink.
  */
-FUNC1(val_hash, ssh_hash_new, hashalg)
+FUNC1(opt_val_hash, ssh_hash_new, hashalg)
 FUNC1(val_hash, ssh_hash_copy, val_hash)
 FUNC1(val_string, ssh_hash_final, consumed_val_hash)
 FUNC2(void, ssh_hash_update, val_hash, val_string_ptrlen)
 
 /*
- * The ssh2_mac abstraction. Note the optional ssh2_cipher parameter
+ * The ssh2_mac abstraction. Note the optional ssh_cipher parameter
  * to ssh2_mac_new. Also, again, I've invented an ssh2_mac_update so
  * you can put data into the MAC.
  */
-FUNC2(val_mac, ssh2_mac_new, macalg, opt_val_ssh2cipher)
+FUNC2(val_mac, ssh2_mac_new, macalg, opt_val_cipher)
 FUNC2(void, ssh2_mac_setkey, val_mac, val_string_ptrlen)
 FUNC1(void, ssh2_mac_start, val_mac)
 FUNC2(void, ssh2_mac_update, val_mac, val_string_ptrlen)
@@ -150,25 +150,17 @@ FUNC1(val_string_asciz, ssh_key_cache_str, val_key)
 FUNC2(uint, ssh_key_public_bits, keyalg, val_string_ptrlen)
 
 /*
- * The ssh1_cipher abstraction. The in-place encrypt and decrypt
- * functions are wrapped to replace them with a pair that take one
+ * The ssh_cipher abstraction. The in-place encrypt and decrypt
+ * functions are wrapped to replace them with versions that take one
  * string and return a separate string.
  */
-FUNC1(val_ssh1cipher, ssh1_cipher_new, ssh1_cipheralg)
-FUNC2(void, ssh1_cipher_sesskey, val_ssh1cipher, val_string_ptrlen)
-FUNC2(val_string, ssh1_cipher_encrypt, val_ssh1cipher, val_string_ptrlen)
-FUNC2(val_string, ssh1_cipher_decrypt, val_ssh1cipher, val_string_ptrlen)
-
-/*
- * The ssh2_cipher abstraction, with similar modifications.
- */
-FUNC1(opt_val_ssh2cipher, ssh2_cipher_new, ssh2_cipheralg)
-FUNC2(void, ssh2_cipher_setiv, val_ssh2cipher, val_string_ptrlen)
-FUNC2(void, ssh2_cipher_setkey, val_ssh2cipher, val_string_ptrlen)
-FUNC2(val_string, ssh2_cipher_encrypt, val_ssh2cipher, val_string_ptrlen)
-FUNC2(val_string, ssh2_cipher_decrypt, val_ssh2cipher, val_string_ptrlen)
-FUNC3(val_string, ssh2_cipher_encrypt_length, val_ssh2cipher, val_string_ptrlen, uint)
-FUNC3(val_string, ssh2_cipher_decrypt_length, val_ssh2cipher, val_string_ptrlen, uint)
+FUNC1(opt_val_cipher, ssh_cipher_new, cipheralg)
+FUNC2(void, ssh_cipher_setiv, val_cipher, val_string_ptrlen)
+FUNC2(void, ssh_cipher_setkey, val_cipher, val_string_ptrlen)
+FUNC2(val_string, ssh_cipher_encrypt, val_cipher, val_string_ptrlen)
+FUNC2(val_string, ssh_cipher_decrypt, val_cipher, val_string_ptrlen)
+FUNC3(val_string, ssh_cipher_encrypt_length, val_cipher, val_string_ptrlen, uint)
+FUNC3(val_string, ssh_cipher_decrypt_length, val_cipher, val_string_ptrlen, uint)
 
 /*
  * Integer Diffie-Hellman.
@@ -212,12 +204,30 @@ FUNC3(void, rsa_ssh1_public_blob, out_val_string_binarysink, val_rsa, rsaorder)
 FUNC1(int, rsa_ssh1_public_blob_len, val_string_ptrlen)
 
 /*
+ * The PRNG type. Similarly to hashes and MACs, I've invented an extra
+ * function prng_seed_update for putting seed data into the PRNG's
+ * exposed BinarySink.
+ */
+FUNC1(val_prng, prng_new, hashalg)
+FUNC1(void, prng_seed_begin, val_prng)
+FUNC2(void, prng_seed_update, val_prng, val_string_ptrlen)
+FUNC1(void, prng_seed_finish, val_prng)
+FUNC2(val_string, prng_read, val_prng, uint)
+FUNC3(void, prng_add_entropy, val_prng, uint, val_string_ptrlen)
+
+/*
  * Miscellaneous.
  */
 FUNC2(val_wpoint, ecdsa_public, val_mpint, keyalg)
 FUNC2(val_epoint, eddsa_public, val_mpint, keyalg)
 FUNC2(val_string, des_encrypt_xdmauth, val_string_ptrlen, val_string_ptrlen)
 FUNC2(val_string, des_decrypt_xdmauth, val_string_ptrlen, val_string_ptrlen)
+FUNC2(val_string, des3_encrypt_pubkey, val_string_ptrlen, val_string_ptrlen)
+FUNC2(val_string, des3_decrypt_pubkey, val_string_ptrlen, val_string_ptrlen)
+FUNC3(val_string, des3_encrypt_pubkey_ossh, val_string_ptrlen, val_string_ptrlen, val_string_ptrlen)
+FUNC3(val_string, des3_decrypt_pubkey_ossh, val_string_ptrlen, val_string_ptrlen, val_string_ptrlen)
+FUNC2(val_string, aes256_encrypt_pubkey, val_string_ptrlen, val_string_ptrlen)
+FUNC2(val_string, aes256_decrypt_pubkey, val_string_ptrlen, val_string_ptrlen)
 FUNC1(uint, crc32_rfc1662, val_string_ptrlen)
 FUNC1(uint, crc32_ssh1, val_string_ptrlen)
 FUNC2(uint, crc32_update, uint, val_string_ptrlen)
