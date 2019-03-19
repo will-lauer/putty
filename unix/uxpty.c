@@ -1309,14 +1309,13 @@ static void pty_free(Backend *be)
 
 static void pty_try_write(Pty *pty)
 {
-    void *data;
-    int len, ret;
+    ssize_t ret;
 
     assert(pty->master_i >= 0);
 
     while (bufchain_size(&pty->output_data) > 0) {
-        bufchain_prefix(&pty->output_data, &data, &len);
-	ret = write(pty->master_i, data, len);
+        ptrlen data = bufchain_prefix(&pty->output_data);
+	ret = write(pty->master_i, data.ptr, data.len);
 
         if (ret < 0 && (errno == EWOULDBLOCK)) {
             /*
@@ -1348,7 +1347,7 @@ static void pty_try_write(Pty *pty)
 /*
  * Called to send data down the pty.
  */
-static int pty_send(Backend *be, const char *buf, int len)
+static size_t pty_send(Backend *be, const char *buf, size_t len)
 {
     Pty *pty = container_of(be, Pty, backend);
 
@@ -1393,7 +1392,7 @@ static void pty_close(Pty *pty)
 /*
  * Called to query the current socket sendability status.
  */
-static int pty_sendbuffer(Backend *be)
+static size_t pty_sendbuffer(Backend *be)
 {
     /* Pty *pty = container_of(be, Pty, backend); */
     return 0;
@@ -1494,7 +1493,7 @@ static bool pty_sendok(Backend *be)
     return true;
 }
 
-static void pty_unthrottle(Backend *be, int backlog)
+static void pty_unthrottle(Backend *be, size_t backlog)
 {
     /* Pty *pty = container_of(be, Pty, backend); */
     /* do nothing */

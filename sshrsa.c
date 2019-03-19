@@ -328,9 +328,12 @@ bool rsa_verify(RSAKey *key)
      * should instead flip them round into the canonical order of
      * p > q. This also involves regenerating iqmp.
      */
-    unsigned swap_pq = mp_cmp_hs(key->q, key->p);
-    mp_cond_swap(key->p, key->q, swap_pq);
-    mp_free(key->iqmp);
+    mp_int *p_new = mp_max(key->p, key->q);
+    mp_int *q_new = mp_min(key->p, key->q);
+    mp_free(key->p);
+    mp_free(key->q);
+    key->p = p_new;
+    key->q = q_new;
     key->iqmp = mp_invert(key->q, key->p);
 
     return ok;
@@ -354,7 +357,7 @@ int rsa_ssh1_public_blob_len(ptrlen data)
 {
     BinarySource src[1];
 
-    BinarySource_BARE_INIT(src, data.ptr, data.len);
+    BinarySource_BARE_INIT_PL(src, data);
 
     /* Expect a length word, then exponent and modulus. (It doesn't
      * even matter which order.) */
@@ -417,7 +420,7 @@ static ssh_key *rsa2_new_pub(const ssh_keyalg *self, ptrlen data)
     BinarySource src[1];
     RSAKey *rsa;
 
-    BinarySource_BARE_INIT(src, data.ptr, data.len);
+    BinarySource_BARE_INIT_PL(src, data);
     if (!ptrlen_eq_string(get_string(src), "ssh-rsa"))
 	return NULL;
 
@@ -481,7 +484,7 @@ static ssh_key *rsa2_new_priv(const ssh_keyalg *self,
         return NULL;
 
     rsa = container_of(sshk, RSAKey, sshk);
-    BinarySource_BARE_INIT(src, priv.ptr, priv.len);
+    BinarySource_BARE_INIT_PL(src, priv);
     rsa->private_exponent = get_mp_ssh2(src);
     rsa->p = get_mp_ssh2(src);
     rsa->q = get_mp_ssh2(src);
@@ -640,7 +643,7 @@ static bool rsa2_verify(ssh_key *key, ptrlen sig, ptrlen data)
     ptrlen type, in_pl;
     mp_int *in, *out;
 
-    BinarySource_BARE_INIT(src, sig.ptr, sig.len);
+    BinarySource_BARE_INIT_PL(src, sig);
     type = get_string(src);
     /*
      * RFC 4253 section 6.6: the signature integer in an ssh-rsa

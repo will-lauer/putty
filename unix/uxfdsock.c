@@ -162,11 +162,10 @@ static int fdsocket_try_send(FdSocket *fds)
     int sent = 0;
 
     while (bufchain_size(&fds->pending_output_data) > 0) {
-	void *data;
-	int len, ret;
+        ssize_t ret;
 
-	bufchain_prefix(&fds->pending_output_data, &data, &len);
-	ret = write(fds->outfd, data, len);
+	ptrlen data = bufchain_prefix(&fds->pending_output_data);
+	ret = write(fds->outfd, data.ptr, data.len);
         noise_ultralight(NOISE_SOURCE_IOID, ret);
 	if (ret < 0 && errno != EWOULDBLOCK) {
             if (!fds->pending_error) {
@@ -198,7 +197,7 @@ static int fdsocket_try_send(FdSocket *fds)
     return sent;
 }
 
-static int fdsocket_write(Socket *s, const void *data, int len)
+static size_t fdsocket_write(Socket *s, const void *data, size_t len)
 {
     FdSocket *fds = container_of(s, FdSocket, sock);
 
@@ -211,7 +210,7 @@ static int fdsocket_write(Socket *s, const void *data, int len)
     return bufchain_size(&fds->pending_output_data);
 }
 
-static int fdsocket_write_oob(Socket *s, const void *data, int len)
+static size_t fdsocket_write_oob(Socket *s, const void *data, size_t len)
 {
     /*
      * oob data is treated as inband; nasty, but nothing really

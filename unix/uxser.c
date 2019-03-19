@@ -23,7 +23,7 @@ struct Serial {
     LogContext *logctx;
     int fd;
     bool finished;
-    int inbufsize;
+    size_t inbufsize;
     bufchain output_data;
     Backend backend;
 };
@@ -422,14 +422,13 @@ static void serial_uxsel_setup(Serial *serial)
 
 static void serial_try_write(Serial *serial)
 {
-    void *data;
-    int len, ret;
+    ssize_t ret;
 
     assert(serial->fd >= 0);
 
     while (bufchain_size(&serial->output_data) > 0) {
-        bufchain_prefix(&serial->output_data, &data, &len);
-	ret = write(serial->fd, data, len);
+        ptrlen data = bufchain_prefix(&serial->output_data);
+	ret = write(serial->fd, data.ptr, data.len);
 
         if (ret < 0 && (errno == EWOULDBLOCK)) {
             /*
@@ -450,7 +449,7 @@ static void serial_try_write(Serial *serial)
 /*
  * Called to send data down the serial connection.
  */
-static int serial_send(Backend *be, const char *buf, int len)
+static size_t serial_send(Backend *be, const char *buf, size_t len)
 {
     Serial *serial = container_of(be, Serial, backend);
 
@@ -466,7 +465,7 @@ static int serial_send(Backend *be, const char *buf, int len)
 /*
  * Called to query the current sendability status.
  */
-static int serial_sendbuffer(Backend *be)
+static size_t serial_sendbuffer(Backend *be)
 {
     Serial *serial = container_of(be, Serial, backend);
     return bufchain_size(&serial->output_data);
@@ -519,7 +518,7 @@ static bool serial_sendok(Backend *be)
     return true;
 }
 
-static void serial_unthrottle(Backend *be, int backlog)
+static void serial_unthrottle(Backend *be, size_t backlog)
 {
     Serial *serial = container_of(be, Serial, backend);
     serial->inbufsize = backlog;

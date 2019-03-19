@@ -490,17 +490,16 @@ static void console_close(FILE *outfp, int infd)
         fclose(outfp);             /* will automatically close infd too */
 }
 
-static void console_prompt_text(FILE *outfp, const char *data, int len)
+static void console_prompt_text(FILE *outfp, const char *data, size_t len)
 {
     bufchain sanitised;
-    void *vdata;
 
     bufchain_init(&sanitised);
     sanitise_term_data(&sanitised, data, len);
     while (bufchain_size(&sanitised) > 0) {
-        bufchain_prefix(&sanitised, &vdata, &len);
-        fwrite(vdata, 1, len, outfp);
-        bufchain_consume(&sanitised, len);
+        ptrlen sdata = bufchain_prefix(&sanitised);
+        fwrite(sdata.ptr, 1, sdata.len, outfp);
+        bufchain_consume(&sanitised, sdata.len);
     }
     fflush(outfp);
 }

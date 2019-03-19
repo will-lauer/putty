@@ -93,8 +93,8 @@ static void uss_return_handle_raw(
     UnixSftpServer *uss, SftpReplyBuilder *reply, int index, unsigned seq)
 {
     unsigned char handlebuf[8];
-    PUT_32BIT(handlebuf, index);
-    PUT_32BIT(handlebuf + 4, seq);
+    PUT_32BIT_MSB_FIRST(handlebuf, index);
+    PUT_32BIT_MSB_FIRST(handlebuf + 4, seq);
     des_encrypt_xdmauth(uss->handlekey, handlebuf, 8);
     fxp_reply_handle(reply, make_ptrlen(handlebuf, 8));
 }
@@ -108,8 +108,8 @@ static bool uss_decode_handle(
         return false;
     memcpy(handlebuf, handle.ptr, 8);
     des_decrypt_xdmauth(uss->handlekey, handlebuf, 8);
-    *index = toint(GET_32BIT(handlebuf));
-    *seq = GET_32BIT(handlebuf + 4);
+    *index = toint(GET_32BIT_MSB_FIRST(handlebuf));
+    *seq = GET_32BIT_MSB_FIRST(handlebuf + 4);
     return true;
 }
 
@@ -650,8 +650,9 @@ static void uss_readdir(SftpServer *srv, SftpReplyBuilder *reply,
                 tm = *localtime(&st.st_mtime);
 
                 longnamebuf = dupprintf(
-                    "%s %3u %-8s %-8s %8"PRIu64" %.3s %2d %02d:%02d %s",
-                    perms, (unsigned)st.st_nlink, user, group, st.st_size,
+                    "%s %3u %-8s %-8s %8"PRIuMAX" %.3s %2d %02d:%02d %s",
+                    perms, (unsigned)st.st_nlink, user, group,
+                    (uintmax_t)st.st_size,
                     (&"JanFebMarAprMayJunJulAugSepOctNovDec"[3*tm.tm_mon]),
                     tm.tm_mday, tm.tm_hour, tm.tm_min, de->d_name);
                 longname = ptrlen_from_asciz(longnamebuf);

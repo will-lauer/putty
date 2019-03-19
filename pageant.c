@@ -338,8 +338,7 @@ void pageant_handle_msg(BinarySink *bs,
                 have_flags = true;
 
             if (logfn) {
-                char *fingerprint = ssh2_fingerprint_blob(
-                    keyblob.ptr, keyblob.len);
+                char *fingerprint = ssh2_fingerprint_blob(keyblob);
                 plog(logctx, logfn, "requested key: %s", fingerprint);
                 sfree(fingerprint);
             }
@@ -575,7 +574,7 @@ void pageant_handle_msg(BinarySink *bs,
             }
 
             if (logfn) {
-                char *fingerprint = ssh2_fingerprint_blob(blob.ptr, blob.len);
+                char *fingerprint = ssh2_fingerprint_blob(blob);
                 plog(logctx, logfn, "unwanted key: %s", fingerprint);
                 sfree(fingerprint);
             }
@@ -846,7 +845,7 @@ static void pageant_conn_closing(Plug *plug, const char *error_msg,
     sfree(pc);
 }
 
-static void pageant_conn_sent(Plug *plug, int bufsize)
+static void pageant_conn_sent(Plug *plug, size_t bufsize)
 {
     /* struct pageant_conn_state *pc = container_of(
         plug, struct pageant_conn_state, plug); */
@@ -868,7 +867,8 @@ static void pageant_conn_log(void *logctx, const char *fmt, va_list ap)
     sfree(formatted);
 }
 
-static void pageant_conn_receive(Plug *plug, int urgent, char *data, int len)
+static void pageant_conn_receive(
+    Plug *plug, int urgent, const char *data, size_t len)
 {
     struct pageant_conn_state *pc = container_of(
         plug, struct pageant_conn_state, plug);
@@ -883,7 +883,7 @@ static void pageant_conn_receive(Plug *plug, int urgent, char *data, int len)
             pc->lenbuf[pc->got++] = c;
         }
 
-        pc->len = GET_32BIT(pc->lenbuf);
+        pc->len = GET_32BIT_MSB_FIRST(pc->lenbuf);
         pc->got = 0;
         pc->real_packet = (pc->len < AGENT_MAX_MSGLEN-4);
 
@@ -909,7 +909,7 @@ static void pageant_conn_receive(Plug *plug, int urgent, char *data, int len)
                                     pc->logfn ? pageant_conn_log : NULL);
             }
 
-            PUT_32BIT(reply->s, reply->len - 4);
+            PUT_32BIT_MSB_FIRST(reply->s, reply->len - 4);
             sk_write(pc->connsock, reply->s, reply->len);
 
             strbuf_free(reply);
@@ -1170,7 +1170,7 @@ int pageant_add_keyfile(Filename *filename, const char *passphrase,
                 strbuf_free(blob);
 		return PAGEANT_ACTION_FAILURE;
 	    }
-	    PUT_32BIT(blob->s, blob->len - 4);
+	    PUT_32BIT_MSB_FIRST(blob->s, blob->len - 4);
 	    keylist = pageant_get_keylist2(&keylistlen);
 	}
 	if (keylist) {
@@ -1180,7 +1180,7 @@ int pageant_add_keyfile(Filename *filename, const char *passphrase,
                 strbuf_free(blob);
 		return PAGEANT_ACTION_FAILURE;
 	    }
-	    nkeys = toint(GET_32BIT(keylist));
+	    nkeys = toint(GET_32BIT_MSB_FIRST(keylist));
 	    if (nkeys < 0) {
 		*retstr = dupstr("Received broken key list from agent");
                 sfree(keylist);
@@ -1217,7 +1217,7 @@ int pageant_add_keyfile(Filename *filename, const char *passphrase,
                         strbuf_free(blob);
                         return PAGEANT_ACTION_FAILURE;
 		    }
-		    n = GET_32BIT(p);
+		    n = GET_32BIT_MSB_FIRST(p);
                     p += 4;
                     keylistlen -= 4;
 
@@ -1239,7 +1239,7 @@ int pageant_add_keyfile(Filename *filename, const char *passphrase,
                         strbuf_free(blob);
                         return PAGEANT_ACTION_FAILURE;
 		    }
-		    n = GET_32BIT(p);
+		    n = GET_32BIT_MSB_FIRST(p);
                     p += 4;
                     keylistlen -= 4;
 
@@ -1517,7 +1517,7 @@ int pageant_add_certfile(Filename *filename, char ** retstr)
             strbuf_free(blob);
             return PAGEANT_ACTION_FAILURE;
 	}
-        PUT_32BIT(blob->s, blob->len-4);
+        PUT_32BIT_MSB_FIRST(blob->s, blob->len-4);
         keylist = pageant_get_keylist2(&keylistlen);
 
         if (keylist) {
@@ -1528,7 +1528,7 @@ int pageant_add_certfile(Filename *filename, char ** retstr)
                 strbuf_free(blob);
                 return PAGEANT_ACTION_FAILURE;
     }
-            nkeys = toint(GET_32BIT(keylist));
+            nkeys = toint(GET_32BIT_MSB_FIRST(keylist));
             if (nkeys < 0) {
                 *retstr = dupstr("Received invalid number of keys from agent");
                 sfree(keylist);
@@ -1557,7 +1557,7 @@ int pageant_add_certfile(Filename *filename, char ** retstr)
                         strbuf_free(blob);
                         return PAGEANT_ACTION_FAILURE;
                     }
-                    n = GET_32BIT(p);
+                    n = GET_32BIT_MSB_FIRST(p);
                     p += 4;
                     keylistlen -= 4;
                     if ( n < 0 || n > keylistlen) {
@@ -1577,7 +1577,7 @@ int pageant_add_certfile(Filename *filename, char ** retstr)
                         strbuf_free(blob);
                         return PAGEANT_ACTION_FAILURE;
                     }
-                    n = GET_32BIT(p);
+                    n = GET_32BIT_MSB_FIRST(p);
                     p += 4;
                     keylistlen -= 4;
                     if ( n < 0 || n > keylistlen) {
@@ -1797,7 +1797,7 @@ int pageant_enum_keys(pageant_key_enum_fn_t callback, void *callback_ctx,
             return PAGEANT_ACTION_FAILURE;
         }
 
-        fingerprint = ssh2_fingerprint_blob(pubblob.ptr, pubblob.len);
+        fingerprint = ssh2_fingerprint_blob(pubblob);
         cbkey.blob = strbuf_new();
         put_datapl(cbkey.blob, pubblob);
 

@@ -69,7 +69,7 @@ struct NetSocket {
     bool frozen; /* this causes readability notifications to be ignored */
     bool localhost_only;               /* for listening sockets */
     char oobdata[1];
-    int sending_oob;
+    size_t sending_oob;
     bool oobpending;        /* is there OOB data available to read? */
     bool oobinline;
     enum { EOF_NO, EOF_PENDING, EOF_SENT } outgoingeof;
@@ -195,7 +195,7 @@ SockAddr *sk_namelookup(const char *host, char **canonicalname, int address_fami
     struct hostent *h = NULL;
     int n;
 #endif
-    strbuf *realhost;
+    strbuf *realhost = strbuf_new();
 
     /* Clear the structure and default to IPv4. */
     memset(ret, 0, sizeof(SockAddr));
@@ -225,7 +225,6 @@ SockAddr *sk_namelookup(const char *host, char **canonicalname, int address_fami
     }
     ret->superfamily = IP;
 
-    realhost = strbuf_new();
     if (ret->ais->ai_canonname != NULL)
 	strbuf_catf(realhost, "%s", ret->ais->ai_canonname);
     else
@@ -501,8 +500,8 @@ static void sk_net_flush(Socket *s)
 }
 
 static void sk_net_close(Socket *s);
-static int sk_net_write(Socket *s, const void *data, int len);
-static int sk_net_write_oob(Socket *s, const void *data, int len);
+static size_t sk_net_write(Socket *s, const void *data, size_t len);
+static size_t sk_net_write_oob(Socket *s, const void *data, size_t len);
 static void sk_net_write_eof(Socket *s);
 static void sk_net_set_frozen(Socket *s, bool is_frozen);
 static SocketPeerInfo *sk_net_peer_info(Socket *s);
@@ -1016,6 +1015,8 @@ static void sk_net_close(Socket *sock)
     if (s->child)
         sk_net_close(&s->child->sock);
 
+    bufchain_clear(&s->output_data);
+
     del234(sktree, s);
     if (s->s >= 0) {
         uxsel_del(s->s);
@@ -1023,6 +1024,7 @@ static void sk_net_close(Socket *sock)
     }
     if (s->addr)
         sk_addr_free(s->addr);
+    delete_callbacks_for_context(s);
     sfree(s);
 }
 
@@ -1109,8 +1111,9 @@ void try_send(NetSocket *s)
     while (s->sending_oob || bufchain_size(&s->output_data) > 0) {
 	int nsent;
 	int err;
-	void *data;
-	int len, urgentflag;
+	const void *data;
+	size_t len;
+        int urgentflag;
 
 	if (s->sending_oob) {
 	    urgentflag = MSG_OOB;
@@ -1118,7 +1121,9 @@ void try_send(NetSocket *s)
 	    data = &s->oobdata;
 	} else {
 	    urgentflag = 0;
-	    bufchain_prefix(&s->output_data, &data, &len);
+            ptrlen bufdata = bufchain_prefix(&s->output_data);
+            data = bufdata.ptr;
+            len = bufdata.len;
 	}
 	nsent = send(s->s, data, len, urgentflag);
 	noise_ultralight(NOISE_SOURCE_IOLEN, nsent);
@@ -1184,7 +1189,7 @@ void try_send(NetSocket *s)
     uxsel_tell(s);
 }
 
-static int sk_net_write(Socket *sock, const void *buf, int len)
+static size_t sk_net_write(Socket *sock, const void *buf, size_t len)
 {
     NetSocket *s = container_of(sock, NetSocket, sock);
 
@@ -1210,7 +1215,7 @@ static int sk_net_write(Socket *sock, const void *buf, int len)
     return bufchain_size(&s->output_data);
 }
 
-static int sk_net_write_oob(Socket *sock, const void *buf, int len)
+static size_t sk_net_write_oob(Socket *sock, const void *buf, size_t len)
 {
     NetSocket *s = container_of(sock, NetSocket, sock);
 
@@ -1449,7 +1454,7 @@ static void net_select_result(int fd, int event)
             s->writable = true;
 	    uxsel_tell(s);
 	} else {
-	    int bufsize_before, bufsize_after;
+	    size_t bufsize_before, bufsize_after;
 	    s->writable = true;
 	    bufsize_before = s->sending_oob + bufchain_size(&s->output_data);
 	    try_send(s);

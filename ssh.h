@@ -271,10 +271,10 @@ struct ConnectionLayerVtable {
     void (*terminal_size)(ConnectionLayer *cl, int width, int height);
 
     /* Indicate that the backlog on standard output has cleared */
-    void (*stdout_unthrottle)(ConnectionLayer *cl, int bufsize);
+    void (*stdout_unthrottle)(ConnectionLayer *cl, size_t bufsize);
 
     /* Query the size of the backlog on standard _input_ */
-    int (*stdin_backlog)(ConnectionLayer *cl);
+    size_t (*stdin_backlog)(ConnectionLayer *cl);
 
     /* Tell the connection layer that the SSH connection itself has
      * backed up, so it should tell all currently open channels to
@@ -377,6 +377,9 @@ void ssh_throttle_conn(Ssh *ssh, int adjust);
 void ssh_got_exitcode(Ssh *ssh, int status);
 void ssh_ldisc_update(Ssh *ssh);
 void ssh_got_fallback_cmd(Ssh *ssh);
+
+/* Communications back to ssh.c from the BPP */
+void ssh_conn_processed_data(Ssh *ssh);
 
 /* Functions to abort the connection, for various reasons. */
 void ssh_remote_error(Ssh *ssh, const char *fmt, ...);
@@ -1251,7 +1254,7 @@ char *ssh2_pubkey_openssh_str(ssh2_userkey *key);
 void ssh2_write_pubkey(FILE *fp, const char *comment,
                        const void *v_pub_blob, int pub_len,
                        int keytype);
-char *ssh2_fingerprint_blob(const void *blob, int bloblen);
+char *ssh2_fingerprint_blob(ptrlen);
 char *ssh2_fingerprint(ssh_key *key);
 char *ssh2_fingerprint_realpub(ssh_key *key);
 int key_type(const Filename *filename);
