@@ -65,9 +65,7 @@
 #
 #  - COMPAT=/DNO_HTMLHELP (Windows only)
 #      Disables PuTTY's use of <htmlhelp.h>, which is not available
-#      with some development environments. The resulting binary
-#      will only look for an old-style WinHelp file (.HLP/.CNT), and
-#      will ignore any .CHM file.
+#      with some development environments.
 #
 #      If you don't have this header, you may be able to use the copy
 #      supplied with HTML Help Workshop.
@@ -242,7 +240,7 @@ CFLAGS += -DWINVER=0x0500 -D_WIN32_WINDOWS=0x0410 -D_WIN32_WINNT=0x0500
 CONF     = conf marshal
 
 # Terminal emulator and its (platform-independent) dependencies.
-TERMINAL = terminal wcwidth ldiscucs logging tree234 minibidi
+TERMINAL = terminal stripctrl wcwidth ldiscucs logging tree234 minibidi
          + config dialog CONF
 
 # GUI front end and terminal emulator (putty, puttytel).
@@ -283,16 +281,16 @@ WINSSH   = SSH winnoise wincapi winpgntc wingss winshare winnps winnpc
 UXSSH    = SSH uxnoise uxagentc uxgss uxshare
 
 # SFTP implementation (pscp, psftp).
-SFTP     = sftp sftpcommon logging cmdline stripctrl
+SFTP     = sftp sftpcommon logging cmdline
 
 # Miscellaneous objects appearing in all the utilities, or all the
 # network ones, or the Unix or Windows subsets of those in turn.
-MISC     = misc utils marshal memory
+MISC     = misc utils marshal memory stripctrl wcwidth
 MISCNETCOMMON = timing callback MISC version tree234 CONF
 MISCNET  = MISCNETCOMMON be_misc settings proxy
 WINMISC  = MISCNET winstore winnet winhandl cmdline windefs winmisc winproxy
          + wintime winhsock errsock winsecur winucs miscucs winmiscs
-UXMISCCOMMON = MISCNETCOMMON uxstore uxsel uxnet uxpeer uxmisc time
+UXMISCCOMMON = MISCNETCOMMON uxstore uxsel uxpoll uxnet uxpeer uxmisc time
          + uxfdsock errsock
 UXMISC   = MISCNET UXMISCCOMMON uxproxy uxutils
 
@@ -335,11 +333,11 @@ U_BE_NOSSH = be_nos_s uxser nocproxy
 putty    : [G] GUITERM NONSSH WINSSH W_BE_ALL WINMISC winx11 putty.res LIBS
 puttytel : [G] GUITERM NONSSH W_BE_NOSSH WINMISC puttytel.res nogss LIBS
 plink    : [C] winplink wincons NONSSH WINSSH W_BE_ALL logging WINMISC
-         + winx11 plink.res winnojmp sessprep stripctrl noterm LIBS
+         + winx11 plink.res winnojmp sessprep noterm winnohlp LIBS
 pscp     : [C] pscp winsftp wincons WINSSH BE_SSH SFTP wildcard WINMISC
-         + pscp.res winnojmp LIBS
+         + pscp.res winnojmp winnohlp LIBS
 psftp    : [C] psftp winsftp wincons WINSSH BE_SSH SFTP wildcard WINMISC
-         + psftp.res winnojmp LIBS
+         + psftp.res winnojmp winnohlp LIBS
 
 pageant  : [G] winpgnt pageant sshrsa sshrsacert sshrsapkcs11 sshpubk sshdes ARITH sshmd5 version
 	 + tree234 MISC sshaes sshsha winsecur winpgntc aqsync sshdss sshdsscert sshsh256
@@ -363,12 +361,13 @@ puttytel : [X] GTKTERM uxmisc misc ldisc settings uxsel U_BE_NOSSH
 	 + nogss utils memory GTKMAIN
 
 plink    : [U] uxplink uxcons NONSSH UXSSH U_BE_ALL logging UXMISC uxsignal
-         + ux_x11 noterm uxnogtk sessprep cmdline stripctrl
+         + ux_x11 noterm uxnogtk sessprep cmdline
 
 PUTTYGEN_UNIX = sshrsag sshdssg sshprime sshdes ARITH sshmd5 version sshprng
          + sshrand uxnoise sshsha MISC sshrsa sshrsacert sshrsapkcs11 sshdss sshdsscert uxcons uxstore uxmisc
          + sshpubk sshaes sshsh256 sshsh512 IMPORT puttygen.res time tree234
          + uxgen notiming CONF sshecc sshecccert ssheccpkcs11 sshecdsag uxnogtk sshauxcrypt sshhmac
+         + uxpoll
 puttygen : [U] cmdgen PUTTYGEN_UNIX
 cgtest   : [UT] cgtest PUTTYGEN_UNIX
 
@@ -397,7 +396,7 @@ testcrypt : [C] testcrypt SSHCRYPTO sshprng sshprime marshal utils
           + memory tree234 winmiscs
 testsc    : [UT] testsc SSHCRYPTO marshal utils memory tree234 wildcard
           + sshmac uxutils
-testzlib : [UT] testzlib sshzlib memory
+testzlib : [UT] testzlib sshzlib utils marshal memory
 
 uppity   : [UT] uxserver SSHSERVER UXMISC uxsignal uxnoise uxgss uxnogtk
          + uxpty uxsftpserver ux_x11 uxagentsock

@@ -9,6 +9,7 @@
 #include "putty.h"
 #include "mpint.h"
 #include "ssh.h"
+#include "sshcr.h"
 #include "pageant.h"
 #include "sshpkcs11.h"
 
@@ -816,10 +817,9 @@ ssh2_userkey* pageant_find_ssh2_key(ptrlen publicblob)
  */
 
 /*
- * Coroutine macros similar to, but simplified from, those in ssh.c.
+ * An extra coroutine macro, specific to this code which is consuming
+ * 'const char *data'.
  */
-#define crBegin(v)	{ int *crLine = &v; switch(v) { case 0:;
-#define crFinishV	} *crLine = 0; return; }
 #define crGetChar(c) do                                         \
     {                                                           \
         while (len == 0) {                                      \

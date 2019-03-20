@@ -105,6 +105,8 @@ static const SeatVtable plink_seat_vt = {
     nullseat_get_x_display,
     nullseat_get_windowid,
     nullseat_get_window_pixel_size,
+    console_stripctrl_new,
+    console_set_trust_status,
 };
 static Seat plink_seat[1] = {{ &plink_seat_vt }};
 
@@ -169,6 +171,8 @@ static void usage(void)
            "-no-sanitise-stderr, -no-sanitise-stdout\n");
     printf("            do/don't strip control chars from standard "
            "output/error\n");
+    printf("  -no-antispoof   omit anti-spoofing prompt after "
+           "authentication\n");
     printf("  -m file   read remote command(s) from file\n");
     printf("  -s        remote command is an SSH subsystem (SSH-2 only)\n");
     printf("  -N        don't start a shell/command (SSH-2 only)\n");
@@ -262,7 +266,7 @@ int main(int argc, char **argv)
 {
     bool sending;
     SOCKET *sklist;
-    int skcount, sksize;
+    size_t skcount, sksize;
     int exitcode;
     bool errors;
     bool use_subsystem = false;
@@ -351,33 +355,24 @@ int main(int argc, char **argv)
         } else if (!strcmp(p, "-no-sanitise-stderr") ||
                    !strcmp(p, "-no-sanitize-stderr")) {
             sanitise_stderr = FORCE_OFF;
+        } else if (!strcmp(p, "-no-antispoof")) {
+            console_antispoof_prompt = false;
 	} else if (*p != '-') {
-            char *command;
-            int cmdlen, cmdsize;
-            cmdlen = cmdsize = 0;
-            command = NULL;
+            strbuf *cmdbuf = strbuf_new();
 
-            while (argc) {
-                while (*p) {
-                    if (cmdlen >= cmdsize) {
-                        cmdsize = cmdlen + 512;
-                        command = sresize(command, cmdsize, char);
-                    }
-                    command[cmdlen++]=*p++;
-                }
-                if (cmdlen >= cmdsize) {
-                    cmdsize = cmdlen + 512;
-                    command = sresize(command, cmdsize, char);
-                }
-                command[cmdlen++]=' '; /* always add trailing space */
-                if (--argc) p = *++argv;
+            while (argc > 0) {
+                if (cmdbuf->len > 0)
+                    put_byte(cmdbuf, ' '); /* add space separator */
+                put_datapl(cmdbuf, ptrlen_from_asciz(p));
+                if (--argc > 0)
+                    p = *++argv;
             }
-            if (cmdlen) command[--cmdlen]='\0';
-            /* change trailing blank to NUL */
-            conf_set_str(conf, CONF_remote_cmd, command);
+
+            conf_set_str(conf, CONF_remote_cmd, cmdbuf->s);
             conf_set_str(conf, CONF_remote_cmd2, "");
             conf_set_bool(conf, CONF_nopty, true);  /* command => no tty */
 
+            strbuf_free(cmdbuf);
             break;		       /* done with cmdline */
         } else {
             fprintf(stderr, "plink: unknown option \"%s\"\n", p);
@@ -590,10 +585,7 @@ int main(int argc, char **argv)
 		 socket = next_socket(&socketstate)) i++;
 
 	    /* Expand the buffer if necessary. */
-	    if (i > sksize) {
-		sksize = i + 16;
-		sklist = sresize(sklist, sksize, SOCKET);
-	    }
+            sgrowarray(sklist, sksize, i);
 
 	    /* Retrieve the sockets into sklist. */
 	    skcount = 0;

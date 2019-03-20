@@ -231,6 +231,7 @@ static void wintw_draw_text(TermWin *, int x, int y, wchar_t *text, int len,
                             unsigned long attrs, int lattrs, truecolour tc);
 static void wintw_draw_cursor(TermWin *, int x, int y, wchar_t *text, int len,
                               unsigned long attrs, int lattrs, truecolour tc);
+static void wintw_draw_trust_sigil(TermWin *, int x, int y);
 static int wintw_char_width(TermWin *, int uc);
 static void wintw_free_draw_ctx(TermWin *);
 static void wintw_set_cursor_pos(TermWin *, int x, int y);
@@ -262,6 +263,7 @@ static const TermWinVtable windows_termwin_vt = {
     wintw_setup_draw_ctx,
     wintw_draw_text,
     wintw_draw_cursor,
+    wintw_draw_trust_sigil,
     wintw_char_width,
     wintw_free_draw_ctx,
     wintw_set_cursor_pos,
@@ -290,6 +292,8 @@ static const TermWinVtable windows_termwin_vt = {
 
 static TermWin wintw[1];
 static HDC wintw_hdc;
+
+static HICON icon;
 
 const bool share_can_be_downstream = true;
 const bool share_can_be_upstream = true;
@@ -320,6 +324,12 @@ bool win_seat_get_window_pixel_size(Seat *seat, int *x, int *y)
     return true;
 }
 
+StripCtrlChars *win_seat_stripctrl_new(
+    Seat *seat, BinarySink *bs_out, SeatInteractionContext sic)
+{
+    return stripctrl_new_term(bs_out, false, 0, term);
+}
+
 static size_t win_seat_output(
     Seat *seat, bool is_stderr, const void *, size_t);
 static bool win_seat_eof(Seat *seat);
@@ -329,6 +339,7 @@ static void win_seat_notify_remote_exit(Seat *seat);
 static void win_seat_connection_fatal(Seat *seat, const char *msg);
 static void win_seat_update_specials_menu(Seat *seat);
 static void win_seat_set_busy_status(Seat *seat, BusyStatus status);
+static bool win_seat_set_trust_status(Seat *seat, bool trusted);
 
 static const SeatVtable win_seat_vt = {
     win_seat_output,
@@ -347,6 +358,8 @@ static const SeatVtable win_seat_vt = {
     nullseat_get_x_display,
     nullseat_get_windowid,
     win_seat_get_window_pixel_size,
+    win_seat_stripctrl_new,
+    win_seat_set_trust_status,
 };
 static Seat win_seat_impl = { &win_seat_vt };
 Seat *const win_seat = &win_seat_impl;
@@ -667,6 +680,8 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
         prepare_session(conf);
     }
 
+    icon = LoadIcon(inst, MAKEINTRESOURCE(IDI_MAINICON));
+
     if (!prev) {
         WNDCLASSW wndclass;
 
@@ -675,7 +690,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
 	wndclass.cbClsExtra = 0;
 	wndclass.cbWndExtra = 0;
 	wndclass.hInstance = inst;
-	wndclass.hIcon = LoadIcon(inst, MAKEINTRESOURCE(IDI_MAINICON));
+	wndclass.hIcon = icon;
 	wndclass.hCursor = LoadCursor(NULL, IDC_IBEAM);
 	wndclass.hbrBackground = NULL;
 	wndclass.lpszMenuName = NULL;
@@ -3488,7 +3503,7 @@ static void do_text_internal(
     bool opaque;
     bool is_cursor = false;
     static int *lpDx = NULL;
-    static int lpDx_len = 0;
+    static size_t lpDx_len = 0;
     int *lpDx_maybe;
     int len2; /* for SURROGATE PAIR */
 
@@ -3699,9 +3714,7 @@ static void do_text_internal(
         }
 
 	if (len > lpDx_len) {
-	    lpDx_len = len * 9 / 8 + 16;
-	    lpDx = sresize(lpDx, lpDx_len, int);
-
+            sgrowarray(lpDx, lpDx_len, len);
 	    if (lpDx_maybe) lpDx_maybe = lpDx;
 	}
 
@@ -3780,14 +3793,10 @@ static void do_text_internal(
             lpDx[0] = -1;
         } else if (DIRECT_FONT(text[0])) {
             static char *directbuf = NULL;
-            static int directlen = 0;
-            int i;
-            if (len > directlen) {
-                directlen = len;
-                directbuf = sresize(directbuf, directlen, char);
-            }
+            static size_t directlen = 0;
 
-            for (i = 0; i < len; i++)
+            sgrowarray(directbuf, directlen, len);
+            for (size_t i = 0; i < len; i++)
                 directbuf[i] = text[i] & 0xFF;
 
             ExtTextOut(wintw_hdc, x + xoffset,
@@ -3983,6 +3992,17 @@ static void wintw_draw_cursor(
 	    }
 	}
     }
+}
+
+static void wintw_draw_trust_sigil(TermWin *tw, int x, int y)
+{
+    x *= font_width;
+    y *= font_height;
+    x += offset_width;
+    y += offset_height;
+
+    DrawIconEx(wintw_hdc, x, y, icon, font_width * 2, font_height,
+               0, NULL, DI_NORMAL);
 }
 
 /* This function gets the actual width of a character in the normal font.
@@ -4924,11 +4944,10 @@ static void wintw_clip_write(
 
     if (conf_get_bool(conf, CONF_rtf_paste)) {
 	wchar_t unitab[256];
-	char *rtf = NULL;
+	strbuf *rtf = strbuf_new();
 	unsigned char *tdata = (unsigned char *)lock2;
 	wchar_t *udata = (wchar_t *)lock;
-	int rtflen = 0, uindex = 0, tindex = 0;
-	int rtfsize = 0;
+	int uindex = 0, tindex = 0;
 	int multilen, blen, alen, totallen, i;
 	char before[16], after[4];
 	int fgcolour,  lastfgcolour  = -1;
@@ -4944,10 +4963,9 @@ static void wintw_clip_write(
 
 	get_unitab(CP_ACP, unitab, 0);
 
-	rtfsize = 100 + strlen(font->name);
-	rtf = snewn(rtfsize, char);
-	rtflen = sprintf(rtf, "{\\rtf1\\ansi\\deff0{\\fonttbl\\f0\\fmodern %s;}\\f0\\fs%d",
-			 font->name, font->height*2);
+	strbuf_catf(
+            rtf, "{\\rtf1\\ansi\\deff0{\\fonttbl\\f0\\fmodern %s;}\\f0\\fs%d",
+            font->name, font->height*2);
 
 	/*
 	 * Add colour palette
@@ -5028,23 +5046,23 @@ static void wintw_clip_write(
 	    /*
 	     * Finally - Write the colour table
 	     */
-	    rtf = sresize(rtf, rtfsize + (numcolours * 25), char);
-	    strcat(rtf, "{\\colortbl ;");
-	    rtflen = strlen(rtf);
+	    put_datapl(rtf, PTRLEN_LITERAL("{\\colortbl ;"));
 
 	    for (i = 0; i < NALLCOLOURS; i++) {
 		if (palette[i] != 0) {
-		    rtflen += sprintf(&rtf[rtflen], "\\red%d\\green%d\\blue%d;", defpal[i].rgbtRed, defpal[i].rgbtGreen, defpal[i].rgbtBlue);
+                    strbuf_catf(rtf, "\\red%d\\green%d\\blue%d;",
+                                defpal[i].rgbtRed, defpal[i].rgbtGreen,
+                                defpal[i].rgbtBlue);
 		}
 	    }
 	    if (rgbtree) {
 		rgbindex *rgbp;
 		for (i = 0; (rgbp = index234(rgbtree, i)) != NULL; i++)
-		    rtflen += sprintf(&rtf[rtflen], "\\red%d\\green%d\\blue%d;",
-				      GetRValue(rgbp->ref), GetGValue(rgbp->ref), GetBValue(rgbp->ref));
+                    strbuf_catf(rtf, "\\red%d\\green%d\\blue%d;",
+                                GetRValue(rgbp->ref), GetGValue(rgbp->ref),
+                                GetBValue(rgbp->ref));
 	    }
-	    strcpy(&rtf[rtflen], "}");
-	    rtflen ++;
+	    put_datapl(rtf, PTRLEN_LITERAL("}"));
 	}
 
 	/*
@@ -5078,11 +5096,6 @@ static void wintw_clip_write(
              * Set text attributes
              */
             if (attr) {
-                if (rtfsize < rtflen + 64) {
-		    rtfsize = rtflen + 512;
-		    rtf = sresize(rtf, rtfsize, char);
-                }
-
                 /*
                  * Determine foreground and background colours
                  */
@@ -5165,14 +5178,14 @@ static void wintw_clip_write(
 		if ((lastfgcolour != fgcolour) || (lastfg != fg)) {
 		    lastfgcolour  = fgcolour;
 		    lastfg        = fg;
-		    if (fg == -1)
-			rtflen += sprintf(&rtf[rtflen], "\\cf%d ",
-					  (fgcolour >= 0) ? palette[fgcolour] : 0);
-		    else {
+                    if (fg == -1) {
+                        strbuf_catf(rtf, "\\cf%d ",
+                                    (fgcolour >= 0) ? palette[fgcolour] : 0);
+                    } else {
 			rgbindex rgb, *rgbp;
 			rgb.ref = fg;
 			if ((rgbp = find234(rgbtree, &rgb, NULL)) != NULL)
-			    rtflen += sprintf(&rtf[rtflen], "\\cf%d ", rgbp->index);
+			    strbuf_catf(rtf, "\\cf%d ", rgbp->index);
 		    }
 		}
 
@@ -5180,24 +5193,28 @@ static void wintw_clip_write(
 		    lastbgcolour  = bgcolour;
 		    lastbg        = bg;
 		    if (bg == -1)
-			rtflen += sprintf(&rtf[rtflen], "\\highlight%d ",
-					  (bgcolour >= 0) ? palette[bgcolour] : 0);
+			strbuf_catf(rtf, "\\highlight%d ",
+                                    (bgcolour >= 0) ? palette[bgcolour] : 0);
 		    else {
 			rgbindex rgb, *rgbp;
 			rgb.ref = bg;
 			if ((rgbp = find234(rgbtree, &rgb, NULL)) != NULL)
-			    rtflen += sprintf(&rtf[rtflen], "\\highlight%d ", rgbp->index);
+			    strbuf_catf(rtf, "\\highlight%d ", rgbp->index);
 		    }
 		}
 
 		if (lastAttrBold != attrBold) {
 		    lastAttrBold  = attrBold;
-		    rtflen       += sprintf(&rtf[rtflen], "%s", attrBold ? "\\b " : "\\b0 ");
+		    put_datapl(rtf, attrBold ?
+                               PTRLEN_LITERAL("\\b ") :
+                               PTRLEN_LITERAL("\\b0 "));
 		}
 
                 if (lastAttrUnder != attrUnder) {
                     lastAttrUnder  = attrUnder;
-                    rtflen        += sprintf(&rtf[rtflen], "%s", attrUnder ? "\\ul " : "\\ulnone ");
+		    put_datapl(rtf, attrUnder ?
+                               PTRLEN_LITERAL("\\ul ") :
+                               PTRLEN_LITERAL("\\ulnone "));
                 }
 	    }
 
@@ -5233,42 +5250,35 @@ static void wintw_clip_write(
 		    totallen++;
 	    }
 
-	    if (rtfsize < rtflen + totallen + 3) {
-		rtfsize = rtflen + totallen + 512;
-		rtf = sresize(rtf, rtfsize, char);
-	    }
-
-	    strcpy(rtf + rtflen, before); rtflen += blen;
+	    put_data(rtf, before, blen);
 	    for (i = 0; i < multilen; i++) {
 		if (tdata[tindex+i] == '\\' ||
 		    tdata[tindex+i] == '{' ||
 		    tdata[tindex+i] == '}') {
-		    rtf[rtflen++] = '\\';
-		    rtf[rtflen++] = tdata[tindex+i];
+                    put_byte(rtf, '\\');
+                    put_byte(rtf, tdata[tindex+i]);
 		} else if (tdata[tindex+i] == 0x0D || tdata[tindex+i] == 0x0A) {
-		    rtflen += sprintf(rtf+rtflen, "\\par\r\n");
+                    put_datapl(rtf, PTRLEN_LITERAL("\\par\r\n"));
 		} else if (tdata[tindex+i] > 0x7E || tdata[tindex+i] < 0x20) {
-		    rtflen += sprintf(rtf+rtflen, "\\'%02x", tdata[tindex+i]);
+                    strbuf_catf(rtf, "\\'%02x", tdata[tindex+i]);
 		} else {
-		    rtf[rtflen++] = tdata[tindex+i];
+                    put_byte(rtf, tdata[tindex+i]);
 		}
 	    }
-	    strcpy(rtf + rtflen, after); rtflen += alen;
+	    put_data(rtf, after, alen);
 
 	    tindex += multilen;
 	    uindex++;
 	}
 
-        rtf[rtflen++] = '}';	       /* Terminate RTF stream */
-        rtf[rtflen++] = '\0';
-        rtf[rtflen++] = '\0';
+        put_datapl(rtf, PTRLEN_LITERAL("}\0\0")); /* Terminate RTF stream */
 
-	clipdata3 = GlobalAlloc(GMEM_DDESHARE | GMEM_MOVEABLE, rtflen);
+	clipdata3 = GlobalAlloc(GMEM_DDESHARE | GMEM_MOVEABLE, rtf->len);
 	if (clipdata3 && (lock3 = GlobalLock(clipdata3)) != NULL) {
-	    memcpy(lock3, rtf, rtflen);
+	    memcpy(lock3, rtf->u, rtf->len);
 	    GlobalUnlock(clipdata3);
 	}
-	sfree(rtf);
+	strbuf_free(rtf);
 
 	if (rgbtree) {
 	    rgbindex *rgbp;
@@ -5815,4 +5825,10 @@ void agent_schedule_callback(void (*callback)(void *, void *, int),
     c->data = data;
     c->len = len;
     PostMessage(hwnd, WM_AGENT_CALLBACK, 0, (LPARAM)c);
+}
+
+static bool win_seat_set_trust_status(Seat *seat, bool trusted)
+{
+    term_set_trust_status(term, trusted);
+    return true;
 }

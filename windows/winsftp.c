@@ -63,7 +63,7 @@ char *psftp_lcd(char *dir)
 char *psftp_getcwd(void)
 {
     char *ret = snewn(256, char);
-    int len = GetCurrentDirectory(256, ret);
+    size_t len = GetCurrentDirectory(256, ret);
     if (len > 256)
 	ret = sresize(ret, len, char);
     GetCurrentDirectory(len, ret);
@@ -451,7 +451,11 @@ bool create_directory(const char *name)
 
 char *dir_file_cat(const char *dir, const char *file)
 {
-    return dupcat(dir, "\\", file, NULL);
+    ptrlen dir_pl = ptrlen_from_asciz(dir);
+    return dupcat(
+        dir, (ptrlen_endswith(dir_pl, PTRLEN_LITERAL("\\"), NULL) ||
+              ptrlen_endswith(dir_pl, PTRLEN_LITERAL("/"), NULL)) ? "" : "\\",
+        file, NULL);
 }
 
 /* ----------------------------------------------------------------------

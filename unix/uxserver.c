@@ -37,9 +37,6 @@
 #include <pwd.h>
 #include <sys/ioctl.h>
 #include <sys/time.h>
-#ifndef HAVE_NO_SYS_SELECT_H
-#include <sys/select.h>
-#endif
 
 #define PUTTY_DO_GLOBALS	       /* actually _define_ globals */
 #include "putty.h"
@@ -360,11 +357,12 @@ int main(int argc, char **argv)
 {
     int *fdlist;
     int fd;
-    int i, fdsize, fdstate;
+    int i, fdstate;
+    size_t fdsize;
     unsigned long now;
 
     ssh_key **hostkeys = NULL;
-    int nhostkeys = 0, hostkeysize = 0;
+    size_t nhostkeys = 0, hostkeysize = 0;
     RSAKey *hostkey1 = NULL;
 
     AuthPolicy ap;
@@ -434,10 +432,7 @@ int main(int argc, char **argv)
                         exit(1);
                     }
 
-                if (nhostkeys >= hostkeysize) {
-                    hostkeysize = nhostkeys * 5 / 4 + 16;
-                    hostkeys = sresize(hostkeys, hostkeysize, ssh_key *);
-                }
+                sgrowarray(hostkeys, hostkeysize, nhostkeys);
                 hostkeys[nhostkeys++] = key;
             } else if (keytype == SSH_KEYTYPE_SSH1) {
                 if (hostkey1) {
@@ -560,17 +555,13 @@ int main(int argc, char **argv)
 
     now = GETTICKCOUNT();
 
+    pollwrapper *pw = pollwrap_new();
     while (!finished) {
-	fd_set rset, wset, xset;
-	int maxfd;
 	int rwx;
 	int ret;
         unsigned long next;
 
-	FD_ZERO(&rset);
-	FD_ZERO(&wset);
-	FD_ZERO(&xset);
-	maxfd = 0;
+        pollwrap_clear(pw);
 
 	/* Count the currently active fds. */
 	i = 0;
@@ -578,10 +569,7 @@ int main(int argc, char **argv)
 	     fd = next_fd(&fdstate, &rwx)) i++;
 
 	/* Expand the fdlist buffer if necessary. */
-	if (i > fdsize) {
-	    fdsize = i + 16;
-	    fdlist = sresize(fdlist, fdsize, int);
-	}
+        sgrowarray(fdlist, fdsize, i);
 
 	/*
 	 * Add all currently open fds to the select sets, and store
@@ -591,24 +579,15 @@ int main(int argc, char **argv)
 	for (fd = first_fd(&fdstate, &rwx); fd >= 0;
 	     fd = next_fd(&fdstate, &rwx)) {
 	    fdlist[fdcount++] = fd;
-	    if (rwx & 1)
-		FD_SET_MAX(fd, maxfd, rset);
-	    if (rwx & 2)
-		FD_SET_MAX(fd, maxfd, wset);
-	    if (rwx & 4)
-		FD_SET_MAX(fd, maxfd, xset);
+            pollwrap_add_fd_rwx(pw, fd, rwx);
 	}
 
         if (toplevel_callback_pending()) {
-            struct timeval tv;
-            tv.tv_sec = 0;
-            tv.tv_usec = 0;
-            ret = select(maxfd, &rset, &wset, &xset, &tv);
+            ret = pollwrap_poll_instant(pw);
         } else if (run_timers(now, &next)) {
             do {
                 unsigned long then;
                 long ticks;
-                struct timeval tv;
 
 		then = now;
 		now = GETTICKCOUNT();
@@ -616,39 +595,45 @@ int main(int argc, char **argv)
 		    ticks = 0;
 		else
 		    ticks = next - now;
-		tv.tv_sec = ticks / 1000;
-		tv.tv_usec = ticks % 1000 * 1000;
-                ret = select(maxfd, &rset, &wset, &xset, &tv);
-                if (ret == 0)
+
+                bool overflow = false;
+                if (ticks > INT_MAX) {
+                    ticks = INT_MAX;
+                    overflow = true;
+                }
+
+                ret = pollwrap_poll_timeout(pw, ticks);
+                if (ret == 0 && !overflow)
                     now = next;
                 else
                     now = GETTICKCOUNT();
             } while (ret < 0 && errno == EINTR);
         } else {
-            ret = select(maxfd, &rset, &wset, &xset, NULL);
+            ret = pollwrap_poll_endless(pw);
         }
 
         if (ret < 0 && errno == EINTR)
             continue;
 
 	if (ret < 0) {
-	    perror("select");
+	    perror("poll");
 	    exit(1);
 	}
 
 	for (i = 0; i < fdcount; i++) {
 	    fd = fdlist[i];
+            int rwx = pollwrap_get_fd_rwx(pw, fd);
             /*
              * We must process exceptional notifications before
              * ordinary readability ones, or we may go straight
              * past the urgent marker.
              */
-	    if (FD_ISSET(fd, &xset))
-		select_result(fd, 4);
-	    if (FD_ISSET(fd, &rset))
-		select_result(fd, 1);
-	    if (FD_ISSET(fd, &wset))
-		select_result(fd, 2);
+	    if (rwx & SELECT_X)
+		select_result(fd, SELECT_X);
+	    if (rwx & SELECT_R)
+		select_result(fd, SELECT_R);
+	    if (rwx & SELECT_W)
+		select_result(fd, SELECT_W);
 	}
 
         run_toplevel_callbacks();

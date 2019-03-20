@@ -193,6 +193,8 @@ static const SeatVtable sesschan_seat_vt = {
     nullseat_get_x_display,
     nullseat_get_windowid,
     sesschan_get_window_pixel_size,
+    nullseat_stripctrl_new,
+    nullseat_set_trust_status,
 };
 
 Channel *sesschan_new(SshChannel *c, LogContext *logctx,
@@ -384,7 +386,7 @@ bool sesschan_enable_x11_forwarding(
      */
     if (authdata_hex.len % 2)
         return false;                  /* expected an even number of digits */
-    authdata_bin = strbuf_new();
+    authdata_bin = strbuf_new_nm();
     for (i = 0; i < authdata_hex.len; i += 2) {
         const unsigned char *hex = authdata_hex.ptr;
         char hexbuf[3];

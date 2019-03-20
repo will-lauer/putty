@@ -1283,7 +1283,7 @@ static void net_select_result(int fd, int event)
     noise_ultralight(NOISE_SOURCE_IOID, fd);
 
     switch (event) {
-      case 4:			       /* exceptional */
+      case SELECT_X:                   /* exceptional */
 	if (!s->oobinline) {
 	    /*
 	     * On a non-oobinline socket, this indicates that we
@@ -1320,7 +1320,7 @@ static void net_select_result(int fd, int event)
 	 */
 	s->oobpending = true;
         break;
-      case 1: 			       /* readable; also acceptance */
+      case SELECT_R:                   /* readable; also acceptance */
 	if (s->listener) {
 	    /*
 	     * On a listening socket, the readability event means a
@@ -1400,10 +1400,10 @@ static void net_select_result(int fd, int event)
 	    plug_receive(s->plug, atmark ? 0 : 1, buf, ret);
 	}
 	break;
-      case 2:			       /* writable */
+      case SELECT_W:                   /* writable */
 	if (!s->connected) {
 	    /*
-	     * select() reports a socket as _writable_ when an
+	     * select/poll reports a socket as _writable_ when an
 	     * asynchronous connect() attempt either completes or
 	     * fails. So first we must find out which.
 	     */
@@ -1559,14 +1559,14 @@ static void uxsel_tell(NetSocket *s)
     int rwx = 0;
     if (!s->pending_error) {
         if (s->listener) {
-            rwx |= 1;                  /* read == accept */
+            rwx |= SELECT_R;           /* read == accept */
         } else {
             if (!s->connected)
-                rwx |= 2;              /* write == connect */
+                rwx |= SELECT_W;       /* write == connect */
             if (s->connected && !s->frozen && !s->incomingeof)
-                rwx |= 1 | 4;          /* read, except */
+                rwx |= SELECT_R | SELECT_X;
             if (bufchain_size(&s->output_data))
-                rwx |= 2;              /* write */
+                rwx |= SELECT_W;
         }
     }
     uxsel_set(s->s, rwx, net_select_result);
@@ -1584,18 +1584,16 @@ int net_service_lookup(char *service)
 
 char *get_hostname(void)
 {
-    int len = 128;
+    size_t size = 0;
     char *hostname = NULL;
     do {
-	len *= 2;
-	hostname = sresize(hostname, len, char);
-	if ((gethostname(hostname, len) < 0) &&
-	    (errno != ENAMETOOLONG)) {
+        sgrowarray(hostname, size, size);
+	if ((gethostname(hostname, size) < 0) && (errno != ENAMETOOLONG)) {
 	    sfree(hostname);
 	    hostname = NULL;
 	    break;
 	}
-    } while (strlen(hostname) >= len-1);
+    } while (strlen(hostname) >= size-1);
     return hostname;
 }
 
