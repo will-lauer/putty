@@ -29,7 +29,7 @@ echo #define SSHVER "%Sshver%" >> version.h
 echo #define BINARY_VERSION %Winvercommas% >> version.h
 echo #define SOURCE_COMMIT "unavailable" >> version.h
 
-perl license.pl
+perl licence.pl
 perl mkfiles.pl
 
 pushd windows
