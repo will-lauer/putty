@@ -720,10 +720,10 @@ static void ssh2_userauth_process_queue(PacketProtocolLayer *ppl)
                             pq_push(s->ppl.out_pq, s->pktout);
                             s->type = AUTH_TYPE_PUBLICKEY;
                         } else {
-                            /* FIXME: less drastic response */
-                            ssh_sw_abort(s->ppl.ssh, "Pageant failed to "
-                                         "provide a signature");
-                            return;
+                            ppl_logevent("Pageant refused signing request");
+                            ppl_printf("Pageant failed to "
+                                       "provide a signature\r\n");
+                            s->suppress_wait_for_response_packet = true;
                         }
                     }
                 }
@@ -850,6 +850,23 @@ static void ssh2_userauth_process_queue(PacketProtocolLayer *ppl)
                             ppl_printf("Unable to load private key (%s)\r\n",
                                        error);
                             key = NULL;
+                            s->suppress_wait_for_response_packet = true;
+                            break; /* try something else */
+                        }
+                    } else {
+                        /* FIXME: if we ever support variable signature
+                         * flags, this is somewhere they'll need to be
+                         * put */
+                        char *invalid = ssh_key_invalid(key->key, 0);
+                        if (invalid) {
+                            ppl_printf("Cannot use this private key (%s)\r\n",
+                                       invalid);
+                            ssh_key_free(key->key);
+                            sfree(key->comment);
+                            sfree(key);
+                            sfree(invalid);
+                            key = NULL;
+                            s->suppress_wait_for_response_packet = true;
                             break; /* try something else */
                         }
                     }

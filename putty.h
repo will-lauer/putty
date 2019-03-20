@@ -341,7 +341,7 @@ enum {
     CIPHER_MAX			       /* no. ciphers (inc warn) */
 };
 
-enum {
+enum TriState {
     /*
      * Several different bits of the PuTTY configuration seem to be
      * three-way settings whose values are `always yes', `always
@@ -1709,6 +1709,8 @@ void random_setup_special();
 /* Manually drop a random seed into the random number generator, e.g.
  * just before generating a key. */
 void random_reseed(ptrlen seed);
+/* Limit on how much entropy is worth putting into the generator (bits). */
+size_t random_seed_bits(void);
 
 /*
  * Exports from pinger.c.

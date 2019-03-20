@@ -43,8 +43,10 @@
 /unix/Pterm.app
 /fuzzterm
 /testcrypt
+/testsc
 /testzlib
 /cgtest
+/scctest
 /*.DSA
 /*.RSA
 /*.cnt
@@ -70,6 +72,7 @@
 /local
 /missing
 /uxconfig.in
+/uxconfig.in~
 /uxconfig.h
 /licence.h
 /*.a

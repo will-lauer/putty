@@ -380,6 +380,7 @@ void ssh_got_fallback_cmd(Ssh *ssh);
 
 /* Communications back to ssh.c from the BPP */
 void ssh_conn_processed_data(Ssh *ssh);
+void ssh_check_frozen(Ssh *ssh);
 
 /* Functions to abort the connection, for various reasons. */
 void ssh_remote_error(Ssh *ssh, const char *fmt, ...);
@@ -830,6 +831,7 @@ struct ssh_keyalg {
 
     /* Methods that operate on an existing ssh_key */
     void (*freekey) (ssh_key *key);
+    char *(*invalid) (ssh_key *key, unsigned flags);
     void (*sign) (ssh_key *key, ptrlen data, unsigned flags, BinarySink *);
     bool (*verify) (ssh_key *key, ptrlen sig, ptrlen data);
     void (*public_blob)(ssh_key *key, BinarySink *);
@@ -853,6 +855,7 @@ struct ssh_keyalg {
 #define ssh_key_new_priv_openssh(alg, bs) ((alg)->new_priv_openssh(alg, bs))
 
 #define ssh_key_free(key) ((key)->vt->freekey(key))
+#define ssh_key_invalid(key, flags) ((key)->vt->invalid(key, flags))
 #define ssh_key_sign(key, data, flags, bs) \
     ((key)->vt->sign(key, data, flags, bs))
 #define ssh_key_verify(key, sig, data) ((key)->vt->verify(key, sig, data))
@@ -1038,6 +1041,7 @@ void prng_seed_begin(prng *p);
 void prng_seed_finish(prng *p);
 void prng_read(prng *p, void *vout, size_t size);
 void prng_add_entropy(prng *p, unsigned source_id, ptrlen data);
+size_t prng_seed_bits(prng *p);
 
 /* This function must be implemented by the platform, and returns a
  * timer in milliseconds that the PRNG can use to know whether it's
