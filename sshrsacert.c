@@ -247,6 +247,39 @@ static ssh_key *rsa2cert_new_priv_openssh(const ssh_keyalg *self,
     return &certkey->sshk;
 }
 
+static char *rsa2cert_sign_invalid(ssh_key *key, unsigned flags)
+{
+    struct RSACertKey *certkey = container_of(key, struct RSACertKey, sshk);
+
+    struct RSAKey rsakey;
+
+    rsakey.modulus = certkey->modulus;
+    rsakey.exponent = certkey->exponent;
+    rsakey.private_exponent = certkey->private_exponent;
+    rsakey.p = certkey->p;
+    rsakey.q = certkey->q;
+    rsakey.iqmp = certkey->iqmp;
+    rsakey.comment = "";
+    rsakey.sshk.vt = &ssh_rsa;
+
+    if (certkey->hasPrivKey) {
+        return ssh_key_invalid(&rsakey.sshk, flags);
+    } else if (ssh_find_key) {
+        /* didn't have private key - look it up and sign with that */
+        strbuf *blob = strbuf_new();
+        ssh_key_public_blob(&rsakey.sshk, BinarySink_UPCAST(blob));
+
+        struct ssh2_userkey *realkey = (*ssh_find_key)(ptrlen_from_strbuf(blob));
+        strbuf_free(blob);
+
+        if (realkey) {
+            return ssh_key_invalid(realkey->key, flags);
+        }
+    }
+
+    return NULL;
+}
+
 static void rsa2cert_sign(ssh_key *key, ptrlen data, unsigned flags,
         BinarySink *bs)
 {
@@ -377,6 +410,7 @@ const ssh_keyalg ssh_cert_rsa = {
         rsa2cert_new_priv_openssh,
 
         rsa2cert_freekey,
+        rsa2cert_sign_invalid,
         rsa2cert_sign,
         rsa2cert_verify,
         rsa2cert_public_blob,

@@ -92,6 +92,24 @@ static void rsa2pkcs11_public_blob(ssh_key *key, BinarySink *bs)
     put_mp_ssh2(bs, rsa->modulus);
 }
 
+static char *rsa2pkcs11_sign_invalid(ssh_key *key, unsigned flags)
+{
+    struct RSAPKCS11Key *pkcs11key = container_of(key, struct RSAPKCS11Key, sshk);
+
+    struct RSAKey rsakey;
+
+    rsakey.modulus = pkcs11key->modulus;
+    rsakey.exponent = pkcs11key->exponent;
+    rsakey.private_exponent = NULL;
+    rsakey.p = NULL;
+    rsakey.q = NULL;
+    rsakey.iqmp = NULL;
+    rsakey.comment = "";
+    rsakey.sshk.vt = &ssh_rsa;
+
+    return ssh_key_invalid(&rsakey.sshk, flags);
+}
+
 static int rsa2pkcs11_pubkey_bits(const ssh_keyalg *self, ptrlen pub)
 {
     ssh_key *sshk;
@@ -191,6 +209,7 @@ const ssh_keyalg ssh_rsa_pkcs11 = {
         NULL, /* rsa2pkcs11_new_priv_openssh */
 
         rsa2pkcs11_freekey,
+        rsa2pkcs11_sign_invalid,
         rsa2pkcs11_sign,
         NULL, /* rsa2pkcs11_verify */
         rsa2pkcs11_public_blob,

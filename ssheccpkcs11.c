@@ -90,6 +90,13 @@ static void ecpkcs11_freekey(ssh_key *key) {
     sfree(ec);
 }
 
+static char *ecpkcs11_signkey_invalid(ssh_key *key, unsigned flags)
+{
+    /* All validity criteria for both ECDSA and EdDSA were checked
+     * when we loaded the key in the first place */
+    return NULL;
+}
+
 static ssh_key *ecpkcs11_new_priv(const ssh_keyalg *self,
                                     ptrlen pub, ptrlen priv)
 {
@@ -227,6 +234,7 @@ const ssh_keyalg ssh_ecds_pkcs11 = {
         NULL, /* ecpkcs11_new_priv_openssh */
 
         ecpkcs11_freekey,
+        ecpkcs11_signkey_invalid,
         ecpkcs11_sign,
         NULL, /* ecpkcs11_verify */
         ecpkcs11_public_blob,

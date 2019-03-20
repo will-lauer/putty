@@ -228,6 +228,12 @@ static ssh_key *dsscert_new_priv_openssh(const ssh_keyalg *self,
     return &certkey->sshk;
 }
 
+static char *dsscert_invalid(ssh_key *key, unsigned flags)
+{
+    /* No validity criterion will stop us from using a DSA key at all */
+    return NULL;
+}
+
 static void dsscert_sign(ssh_key *key, ptrlen data, unsigned flags, BinarySink *bs)
 {
     struct dss_cert_key *certkey = container_of(key, struct dss_cert_key, sshk);
@@ -351,6 +357,7 @@ const ssh_keyalg ssh_cert_dss = {
         dsscert_new_priv_openssh,
 
         dsscert_freekey,
+        dsscert_invalid,
         dsscert_sign,
         dsscert_verify,
         dsscert_public_blob,

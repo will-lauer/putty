@@ -230,6 +230,13 @@ static void ed_cert_freekey(ssh_key *key)
 }
 
 
+static char *ecc_cert_signkey_invalid(ssh_key *key, unsigned flags)
+{
+    /* All validity criteria for both ECDSA and EdDSA were checked
+     * when we loaded the key in the first place */
+    return NULL;
+}
+
 static ssh_key *ecc_cert_new_priv(const ssh_keyalg *self,
         ptrlen pub, ptrlen priv)
 {
@@ -657,6 +664,7 @@ const ssh_keyalg ssh_ecdsa_cert_nistp256 = {
         ecc_cert_new_priv_openssh,
 
         ecc_cert_freekey,
+        ecc_cert_signkey_invalid,
         ecc_cert_sign,
         ecc_cert_verify,
         ecc_cert_public_blob,
@@ -679,6 +687,7 @@ const ssh_keyalg ssh_ecdsa_cert_nistp384 = {
         ecc_cert_new_priv_openssh,
 
         ecc_cert_freekey,
+        ecc_cert_signkey_invalid,
         ecc_cert_sign,
         ecc_cert_verify,
         ecc_cert_public_blob,
@@ -701,6 +710,7 @@ const ssh_keyalg ssh_ecdsa_cert_nistp521 = {
         ecc_cert_new_priv_openssh,
 
         ecc_cert_freekey,
+        ecc_cert_signkey_invalid,
         ecc_cert_sign,
         ecc_cert_verify,
         ecc_cert_public_blob,
@@ -723,6 +733,7 @@ const ssh_keyalg ssh_ecdsa_cert_ed25519 = {
         ed_cert_new_priv_openssh,
 
         ed_cert_freekey,
+        ecc_cert_signkey_invalid,
         ed_cert_sign,
         ed_cert_verify,
         ed_cert_public_blob,

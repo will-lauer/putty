@@ -4,6 +4,7 @@ set MSYS_HOME=C:\msys64
 set MINGW32_HOME=c:\msys64\mingw32
 set MINGW64_HOME=c:\msys64\mingw64
 set IMAGEMAGIC_HOME=c:\Program Files\ImageMagick-7.0.8-Q16
+set PYTHON_HOME=C:\Python27
 
 for /f usebackq %%a in (`c:\msys64\usr\bin\date.EXE +%%Y-%%m-%%d`) do set Ndate=%%a
 for /f usebackq %%a in (`c:\msys64\usr\bin\date.EXE +%%Y%%m%%d`) do set Date=%%a
@@ -43,7 +44,7 @@ REM Windowsify LICENCE, since it's going in the Windows installer.
 perl -i~ -pe "y/\015//d;s/$/\015/" LICENCE
 
 
-set PATH=%MSYS_HOME%\bin;%MSYS_HOME%\usr\bin;%IMAGEMAGIC_HOME%;%WIX%\bin;%PATH%
+set PATH=%MSYS_HOME%\bin;%MSYS_HOME%\usr\bin;%IMAGEMAGIC_HOME%;%WIX%\bin;%PYTHON_HOME%;%PYTHON_HOME%\Scripts;%PATH%
 
 
 pushd doc
