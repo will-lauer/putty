@@ -153,3 +153,9 @@
 /windows/*.msi
 /windows/*.wixobj
 /windows/*.wixpdb
+/windows/build32/*.exe
+/windows/build32/*.map
+/windows/build64/*.exe
+/windows/build64/*.map
+/windows/msibanner.bmp
+/windows/msidialog.bmp
