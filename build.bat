@@ -19,7 +19,6 @@ set Autoconfver=Custom.%Date%
 set Isuffix=custom-%Date%-installer
 set Ifilename32=putty-%Isuffix%
 set Ifilename64=putty-64bit-%Isuffix%
-set Iversion=Custom-%Date%
 
 set Winver=%Lastver%.%Days%.1
 for /f usebackq %%a in (`echo %Winver% ^| tr . ^,`) do set Winvercommas=%%a
@@ -33,12 +32,6 @@ echo #define SOURCE_COMMIT "unavailable" >> version.h
 perl licence.pl
 perl mkfiles.pl
 
-pushd windows
-perl -i~ -pe "BEGIN{$a=shift@ARGV;}s/^(AppVerName=).*$/$1$a/" "%Puttytextver%" putty.iss
-perl -i~ -pe "BEGIN{$a=shift@ARGV;}s/^(VersionInfoTextVersion=).*$/$1$a/" "%Textver%" putty.iss
-perl -i~ -pe "BEGIN{$a=shift@ARGV;}s/^(AppVersion=).*$/$1$a/" "%Iversion%" putty.iss
-perl -i~ -pe "BEGIN{$a=shift@ARGV;}s/^(VersionInfoVersion=)\d+\.\d+\.\d+\.\d+\r?$/$1$a/" "%Winver%" putty.iss
-popd
 
 REM Windowsify LICENCE, since it's going in the Windows installer.
 perl -i~ -pe "y/\015//d;s/$/\015/" LICENCE

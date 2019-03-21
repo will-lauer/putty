@@ -18,7 +18,7 @@ ICOS = putty.ico puttygen.ico pscp.ico pageant.ico pageants.ico puttycfg.ico \
 ICNS = PuTTY.icns Pterm.icns
 CICONS = xpmputty.c xpmpucfg.c xpmpterm.c xpmptcfg.c
 
-base: icos cicons
+base: icos cicons pngs
 
 all: pngs monopngs base icns # truepngs currently disabled by default
 
