@@ -48,7 +48,7 @@ set PATH=%MSYS_HOME%\bin;%MSYS_HOME%\usr\bin;%IMAGEMAGIC_HOME%;%WIX%\bin;%PYTHON
 
 
 pushd doc
-make VERSION="%Puttytextver%" HALIBUT=c:\users\wlauer\downloads\halibut.exe putty.hlp putty.chm
+make VERSION="%Puttytextver%" HALIBUT=c:\users\wlauer\downloads\halibut.exe putty.chm
 popd
 
 REM build putty.iss
