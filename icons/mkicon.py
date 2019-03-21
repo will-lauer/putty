@@ -904,7 +904,7 @@ def testrun(func, fname):
                 r = int(round((r * a + 255 * (255-a)) / 255.0))
                 g = int(round((g * a + 128 * (255-a)) / 255.0))
                 b = int(round((b * a +   0 * (255-a)) / 255.0))
-                f.write("%c%c%c" % (r,g,b))
+                f.write("%c%c%c" % (g,b,r))
 
 def drawicon(func, width, fname, orangebackground = 0):
     canvas = func(width / 32.0)
@@ -926,7 +926,7 @@ def drawicon(func, width, fname, orangebackground = 0):
                     g = int(round((g * a + 128 * (255-a)) / 255.0))
                     b = int(round((b * a +   0 * (255-a)) / 255.0))
                     a = 255
-                f.write("%c%c%c%c" % (r,g,b,a))
+                f.write("%c%c%c%c" % (g,b,a,r))
 
 args = sys.argv[1:]
 
