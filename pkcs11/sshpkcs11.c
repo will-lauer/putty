@@ -180,6 +180,129 @@ void pkcs11_free_provider(struct ssh2_pkcs11_provider* provider) {
     sfree((void*)provider->id);
 }
 
+int pkcs11_refresh_provider(struct ssh2_pkcs11_provider* provider) {
+    CK_RV retVal;
+    CK_FUNCTION_LIST *funcList;
+    CK_RV (*getFuncList)(CK_FUNCTION_LIST **);
+    int validKeys = 0;
+    int status = 0;
+
+    // Only refresh already initializede providers
+    if (!provider->initialized) {
+        return PKCS11_FAILED;
+    }
+
+    // step 1: convert id to canonical path
+    //   NA
+    // step 2: check path against whitelist
+    //   NA
+    // step 3: load library
+    //   NA
+    // step 4: get pkcs11 function list
+    //   NA
+    funcList = provider->function_list;
+
+    // step 5: initialize pkcs11 module
+    // NA
+    // step 5a: clean up old slots
+    for (int ii = 0; ii < provider->nslots; ++ii) {
+        for (int jj = 0; jj < provider->tokens[ii].num_keys; ++jj) {
+            if (provider->tokens[ii].keys[jj].comment)
+                sfree(provider->tokens[ii].keys[jj].comment);
+            if (provider->tokens[ii].keys[jj].key)
+                ssh_key_free(provider->tokens[ii].keys[jj].key);
+        }
+        sfree(provider->tokens[ii].keys);
+        if (provider->tokens[ii].session) {
+            /* attempt to close the session */
+            retVal = provider->function_list->C_CloseSession(provider->tokens[ii].session);
+            if (retVal != CKR_OK) {
+                status = PKCS11_FAILED;
+            }
+        }
+    }
+    sfree(provider->tokens);
+    provider->tokens = NULL;
+    sfree(provider->slots);
+    provider->slots = NULL;
+    provider->nslots = 0;
+    if (status == PKCS11_FAILED) {
+        return status;
+    } else {
+        status = 0;
+    }
+    // step 6: get list of slots
+    // step 6a: get size of slot list
+    if ((retVal = funcList->C_GetSlotList(CK_TRUE, NULL, &provider->nslots)) != CKR_OK) {
+        /* failed to get size of slot list */
+        return PKCS11_FAILED;
+    }
+    // step 6b: allocate space for slots
+    provider->slots = snewn(provider->nslots, CK_SLOT_ID);
+    memset(provider->slots, 0, provider->nslots * sizeof(CK_SLOT_ID));
+    // step 6c: get slot list
+    if ((retVal = funcList->C_GetSlotList(CK_TRUE, provider->slots, &provider->nslots)) != CKR_OK) {
+        /* failed to get actual slot list */
+        return PKCS11_FAILED;
+    }
+    // step 7: get tokens
+    // step 7a: allocate space for tokens
+    provider->tokens = snewn(provider->nslots, struct ssh2_pkcs11_token);
+    memset(provider->tokens, 0, provider->nslots * sizeof(struct ssh2_pkcs11_token));
+    // step 7b: foreach slot:
+    for (CK_ULONG ii = 0; ii < provider->nslots; ++ii) {
+        CK_TOKEN_INFO token;
+        // step 7c: get token info
+        if ((retVal = funcList->C_GetTokenInfo(provider->slots[ii], &token)) != CKR_OK) {
+            /* failed to get token info, so skip this token */
+            status = PKCS11_FAILED;
+            break;
+        }
+        if ((token.flags & CKF_TOKEN_INITIALIZED) == 0) {
+            /* token is not initialized, so we don't care about it */
+            continue;
+        }
+        // step 7d: check if pin required
+        bool needLogin = token.flags & CKF_LOGIN_REQUIRED;
+        if (needLogin && !provider->pin.len) {
+            /* token requires a pin, but none present */
+            status = PKCS11_INVAID_PIN;
+            continue;
+        }
+        // step 7e: open session
+        if ((retVal = funcList->C_OpenSession(
+                provider->slots[ii], CKF_RW_SESSION|CKF_SERIAL_SESSION, NULL, NULL, &provider->tokens[ii].session)) != CKR_OK) {
+            /* failed to open session */
+            status = PKCS11_FAILED;
+            break;
+        }
+        // step 7f: log in if required
+        if (needLogin) {
+            retVal = funcList->C_Login(provider->tokens[ii].session, CKU_USER, (CK_UTF8CHAR_PTR)(provider->pin.ptr), provider->pin.len);
+            if (retVal != CKR_OK && retVal != CKR_USER_ALREADY_LOGGED_IN) {
+                /* failed to log in. cleanup and skip token */
+                status = PKCS11_INVAID_PIN;
+                if ((retVal = funcList->C_CloseSession(provider->tokens[ii].session)) != CKR_OK) {
+                    /* error cleaning up and closing session */
+                    /* TODO - log error */
+                }
+                break;
+            } else {
+                provider->tokens[ii].logged_in = TRUE;
+            }
+        }
+
+        // step 8: get keys
+        validKeys += pkcs11_fetch_pub_keys(provider, ii);
+
+    }
+
+    if (validKeys > 0)
+        return validKeys;
+
+    return status;
+}
+
 int pkcs11_fetch_pub_keys(struct ssh2_pkcs11_provider* provider, CK_ULONG idx)
 {
     CK_FUNCTION_LIST *funcList = provider->function_list;

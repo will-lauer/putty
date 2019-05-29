@@ -52,6 +52,7 @@ enum {
 int pkcs11_add_provider(struct ssh2_pkcs11_provider* provider);
 void pkcs11_del_provider(struct ssh2_pkcs11_provider* provider);
 void pkcs11_free_provider(struct ssh2_pkcs11_provider* provider);
+int pkcs11_refresh_provider(struct ssh2_pkcs11_provider* provider);
 int pkcs11_fetch_pub_keys(struct ssh2_pkcs11_provider* provider, CK_ULONG idx);
 void pkcs11_add_keys(struct ssh2_pkcs11_provider* provider, tree234* tree);
 void pkcs11_remove_keys(struct ssh2_pkcs11_provider* provider, tree234* tree, cmpfn234 fcn);

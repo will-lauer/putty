@@ -129,6 +129,7 @@ int pageant_add_keyfile(Filename *filename, const char *passphrase,
                         char **retstr);
 int pageant_add_certfile(Filename *filename, char **retstr);
 int pageant_add_provider(const char *filename, const char *passphrase, char **retstr);
+int pageant_refresh_provider(const char *filename, char **retstr);
 int pageant_delete_provider(const char *filename, char **retstr);
 void pageant_forget_passphrases(void);
 

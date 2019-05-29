@@ -1705,6 +1705,35 @@ int pageant_add_provider(const char* filename, const char* passphrase, char **re
     return retval;
 }
 
+int pageant_refresh_provider(const char *filename, char **retstr)
+{
+    struct ssh2_pkcs11_provider target, *provider;
+    int retval = PAGEANT_ACTION_FAILURE;
+
+    memset(&target, 0, sizeof(struct ssh2_pkcs11_provider));
+    target.id = filename;
+
+    provider = find234(pkcs11providers, &target, cmpproviders);
+    if (!provider) {
+        *retstr = "provider not found";
+    } else {
+        pkcs11_remove_keys(provider, pkcs11keys, cmpkeys_ssh2);
+        int status = pkcs11_refresh_provider(provider);
+        if (status == PKCS11_FAILED) {
+            *retstr = "smart card setup failed";
+        } else if (status == PKCS11_NO_KEYS) {
+            *retstr = "no keys found in smart card";
+        } else if (status == PKCS11_INVAID_PIN) {
+            *retstr = "invalid pin";
+        } else {
+            pkcs11_add_keys(provider, pkcs11keys);
+            retval = PAGEANT_ACTION_OK;
+        }
+    }
+
+    return retval;
+}
+
 int pageant_delete_provider(const char *filename, char **retstr)
 {
     struct ssh2_pkcs11_provider target, *provider;

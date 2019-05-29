@@ -843,8 +843,8 @@ static INT_PTR CALLBACK KeyListProc(HWND hwnd, UINT msg,
 	              break;
 	          }
 	          prompt_add_provider();
-	}
-	return 0;
+	      }
+	      return 0;
 	  case 107:             /* remove provider */
 	      if (HIWORD(wParam) == BN_CLICKED ||
 	              HIWORD(wParam) == BN_DOUBLECLICKED) {
@@ -879,6 +879,43 @@ static INT_PTR CALLBACK KeyListProc(HWND hwnd, UINT msg,
 	          keylist_update();
 	      }
 	      return 0;
+	  case 108:             /* refresh provider */
+          if (HIWORD(wParam) == BN_CLICKED ||
+                  HIWORD(wParam) == BN_DOUBLECLICKED) {
+              int i;
+              int *selectedArray;
+
+              /* get the number of items selected in the list */
+              int numSelected =
+                      SendDlgItemMessage(hwnd, 105, LB_GETSELCOUNT, 0, 0);
+
+              /* none selected? that was silly */
+              if (numSelected == 0) {
+                  MessageBeep(0);
+                  break;
+              }
+
+              /* get item indices in an array */
+              selectedArray = snewn(numSelected, int);
+              SendDlgItemMessage(hwnd, 105, LB_GETSELITEMS, numSelected,
+                      (WPARAM) selectedArray);
+
+              for (i = 0; i < numSelected; i++) {
+                  char *retstr = NULL;
+                  int sz = SendDlgItemMessage(hwnd, 105, LB_GETTEXTLEN, selectedArray[i], (LPARAM) NULL);
+                  char *name = snewn(sz+1, char);
+                  SendDlgItemMessage(hwnd,105, LB_GETTEXT, selectedArray[i], (LPARAM) name);
+                  if (pageant_refresh_provider(name, &retstr) != PAGEANT_ACTION_OK) {
+                      message_box(retstr, APPNAME, MB_OK | MB_ICONERROR,
+                              HELPCTXID(errors_cantloadkey));
+                  }
+                  sfree(name);
+              }
+
+              sfree(selectedArray);
+              keylist_update();
+          }
+          return 0;
 	}
 	return 0;
       case WM_HELP:
