@@ -580,7 +580,7 @@ static void prompt_add_keyfile(void)
 	    char *dir = filelist;
 	    char *filewalker = filelist + strlen(dir) + 1;
 	    while (*filewalker != '\0') {
-		char *filename = dupcat(dir, "\\", filewalker, NULL);
+                char *filename = dupcat(dir, "\\", filewalker);
                 Filename *fn = filename_from_str(filename);
 		win_add_keyfile(fn);
                 filename_free(fn);
@@ -1447,14 +1447,10 @@ void spawn_cmd(const char *cmdline, const char *args, int show)
     }
 }
 
-/*
- * This is a can't-happen stub, since Pageant never makes
- * asynchronous agent requests.
- */
 void agent_schedule_callback(void (*callback)(void *, void *, int),
 			     void *callback_ctx, void *data, int len)
 {
-    assert(!"We shouldn't get here");
+    unreachable("all Pageant's own agent requests should be synchronous");
 }
 
 void cleanup_exit(int code)
