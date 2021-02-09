@@ -275,24 +275,7 @@ static bool dsscert_verify(ssh_key *key, ptrlen sig, ptrlen data)
 
     dsskey.sshk.vt = &ssh_dss;
 
-    if (certkey->hasPrivKey) {
-        return ssh_key_verify(&dsskey.sshk, sig, data);
-    } else if (ssh_find_key) {
-        /* didn't have private key - look it up and sign with that */
-        strbuf *blob = strbuf_new();
-        ssh_key_public_blob(&dsskey.sshk, BinarySink_UPCAST(blob));
-
-        struct ssh2_userkey *realkey = (*ssh_find_key)(ptrlen_from_strbuf(blob));
-        strbuf_free(blob);
-
-        if (realkey) {
-            return ssh_key_verify(realkey->key, sig, data);
-        } else {
-            return false;
-        }
-    } else {
-        return false;
-    }
+    return ssh_key_verify(&dsskey.sshk, sig, data);
 }
 
 static void dsscert_public_blob(ssh_key *key, BinarySink *bs)

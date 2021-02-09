@@ -504,6 +504,10 @@ static void hklist_handler(union control *ctrl, dlgparam *dlg,
         int i;
 
         static const struct { const char *s; int k; } hks[] = {
+            { "Ed25519 Cert",          HK_ED25519_CERT },
+            { "ECDSA Cert",            HK_ECDSA_CERT },
+            { "DSA Cert",              HK_DSA_CERT },
+            { "RSA Cert",              HK_RSA_CERT },
             { "Ed25519",               HK_ED25519 },
             { "ECDSA",                 HK_ECDSA },
             { "DSA",                   HK_DSA },

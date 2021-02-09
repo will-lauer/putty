@@ -183,7 +183,6 @@ void pkcs11_free_provider(struct ssh2_pkcs11_provider* provider) {
 int pkcs11_refresh_provider(struct ssh2_pkcs11_provider* provider) {
     CK_RV retVal;
     CK_FUNCTION_LIST *funcList;
-    CK_RV (*getFuncList)(CK_FUNCTION_LIST **);
     int validKeys = 0;
     int status = 0;
 

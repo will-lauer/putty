@@ -513,24 +513,7 @@ static bool ecc_cert_verify(ssh_key *key, ptrlen sig, ptrlen data)
     eckey.privateKey = certkey->privateKey;
     eckey.sshk.vt = key->vt->extra;
 
-    if (certkey->hasPrivKey) {
-        return ssh_key_verify(&eckey.sshk, sig, data);
-    } else if (ssh_find_key) {
-        /* didn't have private key - look it up and sign with that */
-        strbuf *blob = strbuf_new();
-        ssh_key_public_blob(&eckey.sshk, BinarySink_UPCAST(blob));
-
-        struct ssh2_userkey *realkey = (*ssh_find_key)(ptrlen_from_strbuf(blob));
-        strbuf_free(blob);
-
-        if (realkey) {
-            return ssh_key_verify(realkey->key, sig, data);
-        } else {
-            return false;
-        }
-    } else {
-        return false;
-    }
+    return ssh_key_verify(&eckey.sshk, sig, data);
 }
 
 static bool ed_cert_verify(ssh_key *key, ptrlen sig, ptrlen data)
@@ -543,24 +526,7 @@ static bool ed_cert_verify(ssh_key *key, ptrlen sig, ptrlen data)
     eckey.privateKey = certkey->privateKey;
     eckey.sshk.vt = key->vt->extra;
 
-    if (certkey->hasPrivKey) {
-        return ssh_key_verify(&eckey.sshk, sig, data);
-    } else if (ssh_find_key) {
-        /* didn't have private key - look it up and sign with that */
-        strbuf *blob = strbuf_new();
-        ssh_key_public_blob(&eckey.sshk, BinarySink_UPCAST(blob));
-
-        struct ssh2_userkey *realkey = (*ssh_find_key)(ptrlen_from_strbuf(blob));
-        strbuf_free(blob);
-
-        if (realkey) {
-            return ssh_key_verify(realkey->key, sig, data);
-        } else {
-            return false;
-        }
-    } else {
-        return false;
-    }
+    return ssh_key_verify(&eckey.sshk, sig, data);
 }
 
 static void ecc_cert_public_blob(ssh_key *key, BinarySink *bs)

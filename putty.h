@@ -324,6 +324,10 @@ enum {
     HK_DSA,
     HK_ECDSA,
     HK_ED25519,
+    HK_RSA_CERT,
+    HK_DSA_CERT,
+    HK_ECDSA_CERT,
+    HK_ED25519_CERT,
     HK_MAX
 };
 
