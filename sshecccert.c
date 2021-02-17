@@ -72,23 +72,31 @@ static ssh_key *ecc_cert_new_pub(const ssh_keyalg *self, ptrlen data)
     ptrlen sigkey = get_string(src);
 
     certkey->signature = mkstr(get_string(src));
+    certkey->sigkey = NULL;
 
     if (get_err(src)) {
         ecc_cert_freekey(&certkey->sshk);
         return NULL;
     }
 
-    BinarySource sk[1];
-    BinarySource_BARE_INIT(sk, sigkey.ptr, sigkey.len);
-    ptrlen algname = get_string(sk);
-    const ssh_keyalg *signature_key = find_pubkey_alg_len(algname);
-    if (signature_key != NULL) {
-        certkey->sigkey = ssh_key_new_pub(signature_key, get_data(sk, get_avail(sk)));
-    }
-
-    if (get_err(sk)) {
+    BinarySource sk_alg[1];
+    BinarySource_BARE_INIT(sk_alg, sigkey.ptr, sigkey.len);
+    ptrlen algname = get_string(sk_alg);
+    if (get_err(sk_alg)) {
         ecc_cert_freekey(&certkey->sshk);
         return NULL;
+    }
+
+    const ssh_keyalg *signature_key = find_pubkey_alg_len(algname);
+    if (signature_key != NULL) {
+        BinarySource sk[1];
+        BinarySource_BARE_INIT(sk, sigkey.ptr, sigkey.len);
+        certkey->sigkey = ssh_key_new_pub(signature_key, get_data(sk, get_avail(sk)));
+
+        if (get_err(sk)) {
+            ecc_cert_freekey(&certkey->sshk);
+            return NULL;
+        }
     }
 
     return &certkey->sshk;
@@ -147,23 +155,32 @@ static ssh_key *ed_cert_new_pub(const ssh_keyalg *self, ptrlen data)
     ptrlen sigkey = get_string(src);
 
     certkey->signature = mkstr(get_string(src));
+    certkey->sigkey = NULL;
 
     if (get_err(src)) {
         ecc_cert_freekey(&certkey->sshk);
         return NULL;
     }
 
-    BinarySource sk[1];
-    BinarySource_BARE_INIT(sk, sigkey.ptr, sigkey.len);
-    ptrlen algname = get_string(sk);
-    const ssh_keyalg *signature_key = find_pubkey_alg_len(algname);
-    if (signature_key != NULL) {
-        certkey->sigkey = ssh_key_new_pub(signature_key, get_data(sk, get_avail(sk)));
-    }
+    BinarySource sk_alg[1];
+    BinarySource_BARE_INIT(sk_alg, sigkey.ptr, sigkey.len);
+    ptrlen algname = get_string(sk_alg);
 
-    if (get_err(sk)) {
+    if (get_err(sk_alg)) {
         ecc_cert_freekey(&certkey->sshk);
         return NULL;
+    }
+
+    const ssh_keyalg *signature_key = find_pubkey_alg_len(algname);
+    if (signature_key != NULL) {
+        BinarySource sk[1];
+        BinarySource_BARE_INIT(sk, sigkey.ptr, sigkey.len);
+        certkey->sigkey = ssh_key_new_pub(signature_key, get_data(sk, get_avail(sk)));
+
+        if (get_err(sk)) {
+            ecc_cert_freekey(&certkey->sshk);
+            return NULL;
+        }
     }
 
     return &certkey->sshk;
@@ -350,6 +367,7 @@ static ssh_key *ecc_cert_new_priv_openssh(const ssh_keyalg *self,
     ptrlen sigkey = get_string(cert);
 
     certkey->signature = mkstr(get_string(cert));
+    certkey->sigkey = NULL;
 
     if (get_err(cert) || !ptrlen_eq_string(certtype, self->ssh_id) || !certkey->publicKey)
     {
@@ -357,19 +375,25 @@ static ssh_key *ecc_cert_new_priv_openssh(const ssh_keyalg *self,
         certkey = NULL;
     }
 
-    BinarySource sk[1];
-    BinarySource_BARE_INIT(sk, sigkey.ptr, sigkey.len);
-    ptrlen algname = get_string(sk);
-    const ssh_keyalg *signature_key = find_pubkey_alg_len(algname);
-    if (signature_key != NULL) {
-        certkey->sigkey = ssh_key_new_pub(signature_key, get_data(sk, get_avail(sk)));
-    } else {
-        certkey->sigkey = NULL;
-    }
+    BinarySource sk_alg[1];
+    BinarySource_BARE_INIT(sk_alg, sigkey.ptr, sigkey.len);
+    ptrlen algname = get_string(sk_alg);
 
-    if (get_err(sk)) {
+    if (get_err(sk_alg)) {
         ecc_cert_freekey(&certkey->sshk);
         return NULL;
+    }
+
+    const ssh_keyalg *signature_key = find_pubkey_alg_len(algname);
+    if (signature_key != NULL) {
+        BinarySource sk[1];
+        BinarySource_BARE_INIT(sk, sigkey.ptr, sigkey.len);
+        certkey->sigkey = ssh_key_new_pub(signature_key, get_data(sk, get_avail(sk)));
+
+        if (get_err(sk)) {
+            ecc_cert_freekey(&certkey->sshk);
+            return NULL;
+        }
     }
 
     return &certkey->sshk;
@@ -424,6 +448,7 @@ static ssh_key *ed_cert_new_priv_openssh(const ssh_keyalg *self,
     ptrlen sigkey = get_string(cert);
 
     certkey->signature = mkstr(get_string(cert));
+    certkey->sigkey = NULL;
 
     if (get_err(cert) || !ptrlen_eq_string(certtype, self->ssh_id) || certkey->publicKey)
     {
@@ -431,19 +456,25 @@ static ssh_key *ed_cert_new_priv_openssh(const ssh_keyalg *self,
         certkey = NULL;
     }
 
-    BinarySource sk[1];
-    BinarySource_BARE_INIT(sk, sigkey.ptr, sigkey.len);
-    ptrlen algname = get_string(sk);
-    const ssh_keyalg *signature_key = find_pubkey_alg_len(algname);
-    if (signature_key != NULL) {
-        certkey->sigkey = ssh_key_new_pub(signature_key, get_data(sk, get_avail(sk)));
-    } else {
-        certkey->sigkey = NULL;
-    }
+    BinarySource sk_alg[1];
+    BinarySource_BARE_INIT(sk_alg, sigkey.ptr, sigkey.len);
+    ptrlen algname = get_string(sk_alg);
 
-    if (get_err(sk)) {
+    if (get_err(sk_alg)) {
         ecc_cert_freekey(&certkey->sshk);
         return NULL;
+    }
+
+    const ssh_keyalg *signature_key = find_pubkey_alg_len(algname);
+    if (signature_key != NULL) {
+        BinarySource sk[1];
+        BinarySource_BARE_INIT(sk, sigkey.ptr, sigkey.len);
+        certkey->sigkey = ssh_key_new_pub(signature_key, get_data(sk, get_avail(sk)));
+
+        if (get_err(sk)) {
+            ecc_cert_freekey(&certkey->sshk);
+            return NULL;
+        }
     }
 
     return &certkey->sshk;
@@ -585,9 +616,15 @@ static void ecc_cert_openssh_blob(ssh_key* key, BinarySink *bs)
 // Used just for looking up host keys for now, so skip
 static char * ecc_cert_cache_str(ssh_key *key)
 {
-    char *p = snewn(1, char);
-    p[0] = '\0';
-    return p;
+    struct ecdsa_cert_key *certkey = container_of(key, struct ecdsa_cert_key, sshk);
+
+    if (certkey->sigkey != NULL) {
+        return ssh_key_cache_str(certkey->sigkey);
+    } else {
+        char *p = snewn(1, char);
+        p[0] = '\0';
+        return p;
+    }
 }
 
 static int ecc_cert_pubkey_bits(const ssh_keyalg *self, ptrlen pub)

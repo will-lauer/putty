@@ -59,23 +59,33 @@ static ssh_key *dsscert_new_pub(const ssh_keyalg *self, ptrlen data)
     ptrlen sigkey = get_string(src);
 
     certkey->signature = mkstr(get_string(src));
+    certkey->sigkey = NULL;
 
     if (get_err(src)) {
         dsscert_freekey(&certkey->sshk);
         return NULL;
     }
 
-    BinarySource sk[1];
-    BinarySource_BARE_INIT(sk, sigkey.ptr, sigkey.len);
-    ptrlen algname = get_string(sk);
-    const ssh_keyalg *signature_key = find_pubkey_alg_len(algname);
-    if (signature_key != NULL) {
-        certkey->sigkey = ssh_key_new_pub(signature_key, get_data(sk, get_avail(sk)));
-    }
+    BinarySource sk_alg[1];
+    BinarySource_BARE_INIT(sk_alg, sigkey.ptr, sigkey.len);
+    ptrlen algname = get_string(sk_alg);
 
-    if (get_err(sk)) {
+    if (get_err(sk_alg)) {
         dsscert_freekey(&certkey->sshk);
         return NULL;
+    }
+
+    const ssh_keyalg *signature_key = find_pubkey_alg_len(algname);
+    if (signature_key != NULL) {
+        BinarySource sk[1];
+        BinarySource_BARE_INIT(sk, sigkey.ptr, sigkey.len);
+        certkey->sigkey = ssh_key_new_pub(signature_key, get_data(sk, get_avail(sk)));
+
+        if (get_err(sk)) {
+            dsscert_freekey(&certkey->sshk);
+            return NULL;
+        }
+
     }
 
     return &certkey->sshk;
@@ -202,6 +212,7 @@ static ssh_key *dsscert_new_priv_openssh(const ssh_keyalg *self,
     ptrlen sigkey = get_string(cert);
 
     certkey->signature = mkstr(get_string(cert));
+    certkey->sigkey = NULL;
 
     /* validate the key - from sshdss.c */
     if (get_err(cert) || !ptrlen_eq_string(certtype, self->ssh_id)
@@ -210,19 +221,25 @@ static ssh_key *dsscert_new_priv_openssh(const ssh_keyalg *self,
         return NULL;
     }
 
-    BinarySource sk[1];
-    BinarySource_BARE_INIT(sk, sigkey.ptr, sigkey.len);
-    ptrlen algname = get_string(sk);
-    const ssh_keyalg *signature_key = find_pubkey_alg_len(algname);
-    if (signature_key != NULL) {
-        certkey->sigkey = ssh_key_new_pub(signature_key, get_data(sk, get_avail(sk)));
-    } else {
-        certkey->sigkey = NULL;
-    }
+    BinarySource sk_alg[1];
+    BinarySource_BARE_INIT(sk_alg, sigkey.ptr, sigkey.len);
+    ptrlen algname = get_string(sk_alg);
 
-    if (get_err(sk)) {
+    if (get_err(sk_alg)) {
         dsscert_freekey(&certkey->sshk);
         return NULL;
+    }
+
+    const ssh_keyalg *signature_key = find_pubkey_alg_len(algname);
+    if (signature_key != NULL) {
+        BinarySource sk[1];
+        BinarySource_BARE_INIT(sk, sigkey.ptr, sigkey.len);
+        certkey->sigkey = ssh_key_new_pub(signature_key, get_data(sk, get_avail(sk)));
+
+        if (get_err(sk)) {
+            dsscert_freekey(&certkey->sshk);
+            return NULL;
+        }
     }
 
     return &certkey->sshk;
@@ -312,9 +329,15 @@ static void dsscert_openssh_blob(ssh_key* key, BinarySink *bs)
 // Used just for looking up host keys for now, so skip
 static char * dsscert_cache_str(ssh_key *key)
 {
-    char *p = snewn(1, char);
-    p[0] = '\0';
-    return p;
+    struct dss_cert_key *certkey = container_of(key, struct dss_cert_key, sshk);
+
+    if (certkey->sigkey != NULL) {
+        return ssh_key_cache_str(certkey->sigkey);
+    } else {
+        char *p = snewn(1, char);
+        p[0] = '\0';
+        return p;
+    }
 }
 
 static int dsscert_pubkey_bits(const ssh_keyalg *self, ptrlen pub)

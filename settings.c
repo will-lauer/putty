@@ -996,7 +996,7 @@ void load_open_settings(settings_r *sesskey, Conf *conf)
         gprefs_from_str(raw, kexnames, KEX_MAX, conf, CONF_ssh_kexlist);
         sfree(raw);
     }
-    gprefs(sesskey, "HostKey", "ed25519,ecdsa,rsa,dsa,WARN",
+    gprefs(sesskey, "HostKey", "ed25519-cert,ecdsa-cert,dss-cert,rsa-cert,ed25519,ecdsa,rsa,dsa,WARN",
            hknames, HK_MAX, conf, CONF_ssh_hklist);
     gppi(sesskey, "RekeyTime", 60, conf, CONF_ssh_rekey_time);
 #ifndef NO_GSSAPI
