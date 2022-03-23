@@ -11,7 +11,7 @@
 #endif
 #include <security.h>
 
-DWORD osMajorVersion, osMinorVersion, osPlatformId;
+GLOBAL DWORD osMajorVersion, osMinorVersion, osPlatformId;
 
 char *platform_get_x_display(void) {
     /* We may as well check for DISPLAY in case it's useful. */

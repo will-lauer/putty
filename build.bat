@@ -3,7 +3,7 @@ setlocal
 set MSYS_HOME=C:\msys64
 set MINGW32_HOME=c:\msys64\mingw32
 set MINGW64_HOME=c:\msys64\mingw64
-set IMAGEMAGIC_HOME=c:\Program Files\ImageMagick-7.0.8-Q16
+set IMAGEMAGIC_HOME=c:\Program Files\ImageMagick-7.1.0-Q16-HDRI
 set PYTHON_HOME=%LOCALAPPDATA%\Programs\Python\Python38
 
 for /f usebackq %%a in (`c:\msys64\usr\bin\date.EXE +%%Y-%%m-%%d`) do set Ndate=%%a
