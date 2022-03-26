@@ -30,7 +30,7 @@ static ssh_key *rsa2cert_new_pub(const ssh_keyalg *self, ptrlen data)
 
     certkey = snew(struct RSACertKey);
     memset(certkey, 0, sizeof(struct RSACertKey));
-    certkey->sshk.vt = &ssh_cert_rsa;
+    certkey->sshk.vt = self;
 
     certkey->certificate.ptr = snewn(data.len, char);
     memcpy((void*)(certkey->certificate.ptr), data.ptr, data.len);
@@ -353,6 +353,13 @@ static void rsa2cert_public_blob(ssh_key *key, BinarySink *bs)
     put_data(bs, certkey->certificate.ptr, certkey->certificate.len);
 }
 
+static void rsa2cert_signature_public_blob(ssh_key *key, BinarySink *bs)
+{
+    struct RSACertKey *certkey = container_of(key, struct RSACertKey, sshk);
+
+    ssh_key_public_blob(certkey->sigkey,bs);
+}
+
 static void rsa2cert_real_public_blob(ssh_key *key, BinarySink *bs)
 {
     struct RSACertKey *certkey = container_of(key, struct RSACertKey, sshk);
@@ -419,6 +426,29 @@ const ssh_keyalg ssh_cert_rsa = {
         rsa2cert_sign,
         rsa2cert_verify,
         rsa2cert_public_blob,
+        rsa2cert_private_blob,
+        rsa2cert_openssh_blob,
+        rsa2cert_cache_str,
+        rsa2cert_real_public_blob,
+
+        rsa2cert_pubkey_bits,
+
+        "ssh-rsa-cert-v01@openssh.com",
+        "ssh-rsa-cert-v01",
+        NULL,
+        0
+};
+
+const ssh_keyalg ssh_cert_rsa_hostkey = {
+        rsa2cert_new_pub,
+        rsa2cert_new_priv,
+        rsa2cert_new_priv_openssh,
+
+        rsa2cert_freekey,
+        rsa2cert_sign_invalid,
+        rsa2cert_sign,
+        rsa2cert_verify,
+        rsa2cert_signature_public_blob,
         rsa2cert_private_blob,
         rsa2cert_openssh_blob,
         rsa2cert_cache_str,

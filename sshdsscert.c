@@ -30,7 +30,7 @@ static ssh_key *dsscert_new_pub(const ssh_keyalg *self, ptrlen data)
 
     certkey = snew(struct dss_cert_key);
     memset(certkey, 0, sizeof(struct dss_cert_key));
-    certkey->sshk.vt = &ssh_cert_dss;
+    certkey->sshk.vt = self;
 
     certkey->certificate.ptr = snewn(data.len, char);
     memcpy((void*)(certkey->certificate.ptr), data.ptr, data.len);
@@ -303,6 +303,13 @@ static void dsscert_public_blob(ssh_key *key, BinarySink *bs)
     put_data(bs, certkey->certificate.ptr, certkey->certificate.len);
 }
 
+static void dsscert_signature_public_blob(ssh_key *key, BinarySink *bs)
+{
+    struct dss_cert_key *certkey = container_of(key, struct dss_cert_key, sshk);
+
+    ssh_key_public_blob(certkey->sigkey,bs);
+}
+
 static void dsscert_real_public_blob(ssh_key *key, BinarySink *bs)
 {
     struct dss_cert_key *certkey = container_of(key, struct dss_cert_key, sshk);
@@ -367,6 +374,29 @@ const ssh_keyalg ssh_cert_dss = {
         dsscert_sign,
         dsscert_verify,
         dsscert_public_blob,
+        dsscert_private_blob,
+        dsscert_openssh_blob,
+        dsscert_cache_str,
+        dsscert_real_public_blob,
+
+        dsscert_pubkey_bits,
+
+        "ssh-dss-cert-v01@openssh.com",
+        "ssh-dss-cert-v01",
+        NULL,
+        0
+};
+
+const ssh_keyalg ssh_cert_dss_hostkey = {
+        dsscert_new_pub,
+        dsscert_new_priv,
+        dsscert_new_priv_openssh,
+
+        dsscert_freekey,
+        dsscert_invalid,
+        dsscert_sign,
+        dsscert_verify,
+        dsscert_signature_public_blob,
         dsscert_private_blob,
         dsscert_openssh_blob,
         dsscert_cache_str,

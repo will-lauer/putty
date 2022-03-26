@@ -46,12 +46,12 @@ struct kexinit_algorithm {
 };
 
 #define HOSTKEY_ALGORITHMS(X)                   \
-    X(HK_ED25519_CERT, ssh_ecdsa_cert_ed25519)  \
-    X(HK_ECDSA_CERT, ssh_ecdsa_cert_nistp256)   \
-    X(HK_ECDSA_CERT, ssh_ecdsa_cert_nistp384)   \
-    X(HK_ECDSA_CERT, ssh_ecdsa_cert_nistp521)   \
-    X(HK_DSA_CERT, ssh_cert_dss)                \
-    X(HK_RSA_CERT, ssh_cert_rsa)                \
+    X(HK_ED25519_CERT, ssh_ecdsa_cert_ed25519_hostkey)  \
+    X(HK_ECDSA_CERT, ssh_ecdsa_cert_nistp256_hostkey)   \
+    X(HK_ECDSA_CERT, ssh_ecdsa_cert_nistp384_hostkey)   \
+    X(HK_ECDSA_CERT, ssh_ecdsa_cert_nistp521_hostkey)   \
+    X(HK_DSA_CERT, ssh_cert_dss_hostkey)                \
+    X(HK_RSA_CERT, ssh_cert_rsa_hostkey)                \
     X(HK_ED25519, ssh_ecdsa_ed25519)            \
     X(HK_ECDSA, ssh_ecdsa_nistp256)             \
     X(HK_ECDSA, ssh_ecdsa_nistp384)             \
