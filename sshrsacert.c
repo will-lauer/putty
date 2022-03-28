@@ -167,6 +167,12 @@ static ssh_key *rsa2cert_new_priv(const ssh_keyalg *self,
             rsa2cert_freekey(&certkey->sshk);
             return NULL;
         }
+
+        /* rsa_verify might modify the private key to make it well formed. */
+        certkey->private_exponent = rsakey.private_exponent;
+        certkey->p = rsakey.p;
+        certkey->q = rsakey.q;
+        certkey->iqmp = rsakey.iqmp;
     } else {
         /* no private key present, so look it up later if necessary */
         certkey->hasPrivKey = false;
@@ -238,6 +244,13 @@ static ssh_key *rsa2cert_new_priv_openssh(const ssh_keyalg *self,
         rsa2cert_freekey(&certkey->sshk);
         return NULL;
     }
+
+    /* rsa_verify might modify the private key to make it well formed. */
+    certkey->private_exponent = rsakey.private_exponent;
+    certkey->p = rsakey.p;
+    certkey->q = rsakey.q;
+    certkey->iqmp = rsakey.iqmp;
+
 
     BinarySource sk_alg[1];
     BinarySource_BARE_INIT(sk_alg, sigkey.ptr, sigkey.len);
@@ -382,7 +395,16 @@ static void rsa2cert_private_blob(ssh_key *key, BinarySink *bs)
 
 static void rsa2cert_openssh_blob(ssh_key* key, BinarySink *bs)
 {
-    // don't return anything. USed only for export, and we don't export certs
+    struct RSACertKey *rsa = container_of(key, struct RSACertKey, sshk);
+
+    put_stringpl(bs, rsa->certificate);
+
+    if (rsa->hasPrivKey) {
+        put_mp_ssh2(bs, rsa->private_exponent);
+        put_mp_ssh2(bs, rsa->iqmp);
+        put_mp_ssh2(bs, rsa->p);
+        put_mp_ssh2(bs, rsa->q);
+    }
 }
 
 // Used just for looking up host keys for now, so skip
@@ -398,6 +420,25 @@ static char * rsa2cert_cache_str(ssh_key *key)
         return p;
     }
 }
+
+static key_components *rsa2cert_components(ssh_key *key)
+{
+    struct RSACertKey *certkey = container_of(key, struct RSACertKey, sshk);
+    struct RSAKey rsakey;
+
+    rsakey.modulus = certkey->modulus;
+    rsakey.exponent = certkey->exponent;
+    rsakey.private_exponent = certkey->private_exponent;
+    rsakey.p = certkey->p;
+    rsakey.q = certkey->q;
+    rsakey.iqmp = certkey->iqmp;
+    rsakey.comment = "";
+    rsakey.sshk.vt = &ssh_rsa;
+
+    return ssh_key_components(&rsakey.sshk);
+}
+
+
 
 static int rsa2cert_pubkey_bits(const ssh_keyalg *self, ptrlen pub)
 {
@@ -417,47 +458,41 @@ static int rsa2cert_pubkey_bits(const ssh_keyalg *self, ptrlen pub)
 }
 
 const ssh_keyalg ssh_cert_rsa = {
-        rsa2cert_new_pub,
-        rsa2cert_new_priv,
-        rsa2cert_new_priv_openssh,
-
-        rsa2cert_freekey,
-        rsa2cert_sign_invalid,
-        rsa2cert_sign,
-        rsa2cert_verify,
-        rsa2cert_public_blob,
-        rsa2cert_private_blob,
-        rsa2cert_openssh_blob,
-        rsa2cert_cache_str,
-        rsa2cert_real_public_blob,
-
-        rsa2cert_pubkey_bits,
-
-        "ssh-rsa-cert-v01@openssh.com",
-        "ssh-rsa-cert-v01",
-        NULL,
-        0
+        .new_pub            = rsa2cert_new_pub,
+        .new_priv           = rsa2cert_new_priv,
+        .new_priv_openssh   = rsa2cert_new_priv_openssh,
+        .freekey            = rsa2cert_freekey,
+        .invalid            = rsa2cert_sign_invalid,
+        .sign               = rsa2cert_sign,
+        .verify             = rsa2cert_verify,
+        .public_blob        = rsa2cert_public_blob,
+        .private_blob       = rsa2cert_private_blob,
+        .openssh_blob       = rsa2cert_openssh_blob,
+        .cache_str          = rsa2cert_cache_str,
+        .real_public_blob   = rsa2cert_real_public_blob,
+        .components         = rsa2cert_components,
+        .pubkey_bits        = rsa2cert_pubkey_bits,
+        .ssh_id             = "ssh-rsa-cert-v01@openssh.com",
+        .cache_id           = "ssh-rsa-cert-v01",
+        .supported_flags    = SSH_AGENT_RSA_SHA2_256 | SSH_AGENT_RSA_SHA2_512,
 };
 
 const ssh_keyalg ssh_cert_rsa_hostkey = {
-        rsa2cert_new_pub,
-        rsa2cert_new_priv,
-        rsa2cert_new_priv_openssh,
-
-        rsa2cert_freekey,
-        rsa2cert_sign_invalid,
-        rsa2cert_sign,
-        rsa2cert_verify,
-        rsa2cert_signature_public_blob,
-        rsa2cert_private_blob,
-        rsa2cert_openssh_blob,
-        rsa2cert_cache_str,
-        rsa2cert_real_public_blob,
-
-        rsa2cert_pubkey_bits,
-
-        "ssh-rsa-cert-v01@openssh.com",
-        "ssh-rsa-cert-v01",
-        NULL,
-        0
+        .new_pub            = rsa2cert_new_pub,
+        .new_priv           = rsa2cert_new_priv,
+        .new_priv_openssh   = rsa2cert_new_priv_openssh,
+        .freekey            = rsa2cert_freekey,
+        .invalid            = rsa2cert_sign_invalid,
+        .sign               = rsa2cert_sign,
+        .verify             = rsa2cert_verify,
+        .public_blob        = rsa2cert_signature_public_blob,
+        .private_blob       = rsa2cert_private_blob,
+        .openssh_blob       = rsa2cert_openssh_blob,
+        .cache_str          = rsa2cert_cache_str,
+        .real_public_blob   = rsa2cert_real_public_blob,
+        .components         = rsa2cert_components,
+        .pubkey_bits        = rsa2cert_pubkey_bits,
+        .ssh_id             = "ssh-rsa-cert-v01@openssh.com",
+        .cache_id           = "ssh-rsa-cert-v01",
+        .supported_flags    = SSH_AGENT_RSA_SHA2_256 | SSH_AGENT_RSA_SHA2_512,
 };

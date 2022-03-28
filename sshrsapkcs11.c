@@ -30,7 +30,7 @@ static ssh_key *rsa2pkcs11_new_pub(const ssh_keyalg *self, ptrlen data) {
 
     rsa = snew(struct RSAPKCS11Key);
     memset(rsa, 0, sizeof(struct RSAPKCS11Key));
-    rsa->sshk.vt = &ssh_rsa_pkcs11;
+    rsa->sshk.vt = self;
     rsa->exponent = get_mp_ssh2(src);
     rsa->modulus = get_mp_ssh2(src);
 
@@ -204,25 +204,22 @@ static void rsa2pkcs11_sign(ssh_key *key, ptrlen data, unsigned flags, BinarySin
 }
 
 const ssh_keyalg ssh_rsa_pkcs11 = {
-        rsa2pkcs11_new_pub,
-        rsa2pkcs11_new_priv,
-        NULL, /* rsa2pkcs11_new_priv_openssh */
-
-        rsa2pkcs11_freekey,
-        rsa2pkcs11_sign_invalid,
-        rsa2pkcs11_sign,
-        NULL, /* rsa2pkcs11_verify */
-        rsa2pkcs11_public_blob,
-        NULL, /* rsa2pkcs11_private_blob */
-        NULL, /* rsa2pkcs11_openssh_blob */
-        NULL, /* rsa2pkcs11_cache_str */
-        rsa2pkcs11_public_blob,
-
-        rsa2pkcs11_pubkey_bits,
-
-        "ssh-rsa",
-        "rsa2",
-        NULL,
-        0
+        .new_pub                = rsa2pkcs11_new_pub,
+        .new_priv               = rsa2pkcs11_new_priv,
+        .new_priv_openssh       = NULL, /* rsa2pkcs11_new_priv_openssh */
+        .freekey                = rsa2pkcs11_freekey,
+        .invalid                = rsa2pkcs11_sign_invalid,
+        .sign                   = rsa2pkcs11_sign,
+        .verify                 = NULL, /* rsa2pkcs11_verify */
+        .public_blob            = rsa2pkcs11_public_blob,
+        .private_blob           = NULL, /* rsa2pkcs11_private_blob */
+        .openssh_blob           = NULL, /* rsa2pkcs11_openssh_blob */
+        .cache_str              = NULL, /* rsa2pkcs11_cache_str */
+        .real_public_blob       = rsa2pkcs11_public_blob,
+        .components             = NULL, /* components */
+        .pubkey_bits            = rsa2pkcs11_pubkey_bits,
+        .ssh_id                 = "ssh-rsa",
+        .cache_id               = "rsa2",
+        .extra                  = NULL,
 };
 

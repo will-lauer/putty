@@ -26,35 +26,39 @@
 #pragma pack(pop, cryptoki)
 #endif
 
-struct ssh2_pkcs11_token {
+typedef struct ssh2_pkcs11_key {
+    const ssh_keyalg *alg;
+    strbuf *pubblob;
+    strbuf *privblob;
+} ssh2_pkcs11_key;
+
+typedef struct ssh2_pkcs11_token {
     CK_SESSION_HANDLE   session;
     bool                logged_in;
     size_t              num_keys;
-    struct ssh2_userkey *keys;
-};
+    ssh2_pkcs11_key     *keys;
+} ssh2_pkcs11_token;
 
-struct ssh2_pkcs11_provider {
+typedef struct ssh2_pkcs11_provider {
     const char*         id;
-    ptrlen              pin;
+    const char*         pin;
     void*               handle;
     CK_FUNCTION_LIST    *function_list;
     bool                initialized;
     CK_ULONG            nslots;
     CK_SLOT_ID          *slots;
     struct ssh2_pkcs11_token *tokens;
-};
+} ssh2_pkcs11_provider;
 
 enum {
     PKCS11_NO_KEYS = 0,
     PKCS11_FAILED = -1,
-    PKCS11_INVAID_PIN = -2
+    PKCS11_INVALID_PIN = -2
 };
 int pkcs11_add_provider(struct ssh2_pkcs11_provider* provider);
 void pkcs11_del_provider(struct ssh2_pkcs11_provider* provider);
 void pkcs11_free_provider(struct ssh2_pkcs11_provider* provider);
 int pkcs11_refresh_provider(struct ssh2_pkcs11_provider* provider);
 int pkcs11_fetch_pub_keys(struct ssh2_pkcs11_provider* provider, CK_ULONG idx);
-void pkcs11_add_keys(struct ssh2_pkcs11_provider* provider, tree234* tree);
-void pkcs11_remove_keys(struct ssh2_pkcs11_provider* provider, tree234* tree, cmpfn234 fcn);
 
 #endif /* PKCS11_SSHPKCS11_H_ */

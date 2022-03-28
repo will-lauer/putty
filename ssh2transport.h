@@ -53,6 +53,7 @@ struct kexinit_algorithm {
     X(HK_DSA_CERT, ssh_cert_dss_hostkey)                \
     X(HK_RSA_CERT, ssh_cert_rsa_hostkey)                \
     X(HK_ED25519, ssh_ecdsa_ed25519)            \
+    X(HK_ED448, ssh_ecdsa_ed448)                \
     X(HK_ECDSA, ssh_ecdsa_nistp256)             \
     X(HK_ECDSA, ssh_ecdsa_nistp384)             \
     X(HK_ECDSA, ssh_ecdsa_nistp521)             \

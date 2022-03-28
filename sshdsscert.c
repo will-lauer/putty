@@ -330,7 +330,12 @@ static void dsscert_private_blob(ssh_key *key, BinarySink *bs)
 
 static void dsscert_openssh_blob(ssh_key* key, BinarySink *bs)
 {
-    // don't return anything. USed only for export, and we don't export certs
+    struct dss_cert_key *dss = container_of(key, struct dss_cert_key, sshk);
+
+    put_stringpl(bs, dss->certificate);
+    if (dss->hasPrivKey) {
+        put_mp_ssh2(bs, dss->x);
+    }
 }
 
 // Used just for looking up host keys for now, so skip
@@ -345,6 +350,22 @@ static char * dsscert_cache_str(ssh_key *key)
         p[0] = '\0';
         return p;
     }
+}
+
+static key_components *dsscert_components(ssh_key *key)
+{
+    struct dss_cert_key *certkey = container_of(key, struct dss_cert_key, sshk);
+    struct dss_key dsskey;
+
+    dsskey.p = certkey->p;
+    dsskey.q = certkey->q;
+    dsskey.g = certkey->g;
+    dsskey.y = certkey->y;
+    dsskey.x = certkey->x;
+
+    dsskey.sshk.vt = &ssh_dss;
+
+    return ssh_key_components(&dsskey.sshk);
 }
 
 static int dsscert_pubkey_bits(const ssh_keyalg *self, ptrlen pub)
@@ -364,48 +385,61 @@ static int dsscert_pubkey_bits(const ssh_keyalg *self, ptrlen pub)
     return ret;
 }
 
+/*
+ * const ssh_keyalg ssh_dss = {
+    .new_pub                = dss_new_pub,
+    .new_priv               = dss_new_priv,
+    .new_priv_openssh       = dss_new_priv_openssh,
+    .freekey                = dss_freekey,
+    .invalid                = dss_invalid,
+    .sign                   = dss_sign,
+    .verify                 = dss_verify,
+    .public_blob            = dss_public_blob,
+    .private_blob           = dss_private_blob,
+    .openssh_blob           = dss_openssh_blob,
+    .cache_str              = dss_cache_str,
+    .real_public_blob       = dss_public_blob,
+    .components             = dss_components,
+    .pubkey_bits            = dss_pubkey_bits,
+    .ssh_id                 = "ssh-dss",
+    .cache_id               = "dss",
+};
+ *
+ */
 const ssh_keyalg ssh_cert_dss = {
-        dsscert_new_pub,
-        dsscert_new_priv,
-        dsscert_new_priv_openssh,
-
-        dsscert_freekey,
-        dsscert_invalid,
-        dsscert_sign,
-        dsscert_verify,
-        dsscert_public_blob,
-        dsscert_private_blob,
-        dsscert_openssh_blob,
-        dsscert_cache_str,
-        dsscert_real_public_blob,
-
-        dsscert_pubkey_bits,
-
-        "ssh-dss-cert-v01@openssh.com",
-        "ssh-dss-cert-v01",
-        NULL,
-        0
+        .new_pub                = dsscert_new_pub,
+        .new_priv               = dsscert_new_priv,
+        .new_priv_openssh       = dsscert_new_priv_openssh,
+        .freekey                = dsscert_freekey,
+        .invalid                = dsscert_invalid,
+        .sign                   = dsscert_sign,
+        .verify                 = dsscert_verify,
+        .public_blob            = dsscert_public_blob,
+        .private_blob           = dsscert_private_blob,
+        .openssh_blob           = dsscert_openssh_blob,
+        .cache_str              = dsscert_cache_str,
+        .real_public_blob       = dsscert_real_public_blob,
+        .components             = dsscert_components,
+        .pubkey_bits            = dsscert_pubkey_bits,
+        .ssh_id                 = "ssh-dss-cert-v01@openssh.com",
+        .cache_id               = "ssh-dss-cert-v01",
 };
 
 const ssh_keyalg ssh_cert_dss_hostkey = {
-        dsscert_new_pub,
-        dsscert_new_priv,
-        dsscert_new_priv_openssh,
-
-        dsscert_freekey,
-        dsscert_invalid,
-        dsscert_sign,
-        dsscert_verify,
-        dsscert_signature_public_blob,
-        dsscert_private_blob,
-        dsscert_openssh_blob,
-        dsscert_cache_str,
-        dsscert_real_public_blob,
-
-        dsscert_pubkey_bits,
-
-        "ssh-dss-cert-v01@openssh.com",
-        "ssh-dss-cert-v01",
-        NULL,
-        0
+        .new_pub                = dsscert_new_pub,
+        .new_priv               = dsscert_new_priv,
+        .new_priv_openssh       = dsscert_new_priv_openssh,
+        .freekey                = dsscert_freekey,
+        .invalid                = dsscert_invalid,
+        .sign                   = dsscert_sign,
+        .verify                 = dsscert_verify,
+        .public_blob            = dsscert_signature_public_blob,
+        .private_blob           = dsscert_private_blob,
+        .openssh_blob           = dsscert_openssh_blob,
+        .cache_str              = dsscert_cache_str,
+        .real_public_blob       = dsscert_real_public_blob,
+        .components             =dsscert_components,
+        .pubkey_bits            = dsscert_pubkey_bits,
+        .ssh_id                 = "ssh-dss-cert-v01@openssh.com",
+        .cache_id               = "ssh-dss-cert-v01",
 };

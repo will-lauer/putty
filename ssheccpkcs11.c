@@ -44,7 +44,7 @@ static ssh_key *ecpkcs11_new_pub(const ssh_keyalg *self, ptrlen data) {
 
     ec = snew(struct ecdsa_key_pkcs11);
     memset(ec, 0, sizeof(struct ecdsa_key_pkcs11));
-    ec->sshk.vt = &ssh_ecds_pkcs11;
+    ec->sshk.vt = self;
 
     ptrlen params = get_string(src);
     if (ptrlen_eq_oid(params, &ssh_ecdsa_nistp256)) {
@@ -229,25 +229,22 @@ static int ecpkcs11_pubkey_bits(const ssh_keyalg *self, ptrlen pub)
 }
 
 const ssh_keyalg ssh_ecds_pkcs11 = {
-        ecpkcs11_new_pub,
-        ecpkcs11_new_priv,
-        NULL, /* ecpkcs11_new_priv_openssh */
-
-        ecpkcs11_freekey,
-        ecpkcs11_signkey_invalid,
-        ecpkcs11_sign,
-        NULL, /* ecpkcs11_verify */
-        ecpkcs11_public_blob,
-        NULL, /* ecpkcs11_private_blob */
-        NULL, /* ecpkcs11_openssh_blob */
-        NULL, /* ecpkcs11_cache_str */
-        ecpkcs11_public_blob,
-
-        ecpkcs11_pubkey_bits,
-
-        "ssh-ecdsa",
-        "ec",
-        NULL,
-        0
+        .new_pub                = ecpkcs11_new_pub,
+        .new_priv               = ecpkcs11_new_priv,
+        .new_priv_openssh       = NULL, /* ecpkcs11_new_priv_openssh */
+        .freekey                = ecpkcs11_freekey,
+        .invalid                = ecpkcs11_signkey_invalid,
+        .sign                   = ecpkcs11_sign,
+        .verify                 = NULL, /* ecpkcs11_verify */
+        .public_blob            = ecpkcs11_public_blob,
+        .private_blob           = NULL, /* ecpkcs11_private_blob */
+        .openssh_blob           = NULL, /* ecpkcs11_openssh_blob */
+        .cache_str              = NULL, /* ecpkcs11_cache_str */
+        .real_public_blob       = ecpkcs11_public_blob,
+        .components             = NULL, /* components */
+        .pubkey_bits            = ecpkcs11_pubkey_bits,
+        .ssh_id                 = "ssh-ecdsa",
+        .cache_id               = "ec",
+        .extra                  = NULL,
 };
 

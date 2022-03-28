@@ -624,7 +624,24 @@ static void ed_cert_private_blob(ssh_key *key, BinarySink *bs)
 
 static void ecc_cert_openssh_blob(ssh_key* key, BinarySink *bs)
 {
-    // don't return anything. USed only for export, and we don't export certs
+    struct ecdsa_cert_key *certkey = container_of(key, struct ecdsa_cert_key, sshk);
+
+    put_stringpl(bs, certkey->certificate);
+
+    if (certkey->hasPrivKey) {
+        put_mp_ssh2(bs, certkey->privateKey);
+    }
+}
+
+static void ed_cert_openssh_blob(ssh_key* key, BinarySink *bs)
+{
+    struct eddsa_cert_key *certkey = container_of(key, struct eddsa_cert_key, sshk);
+
+    put_stringpl(bs, certkey->certificate);
+
+    if (certkey->hasPrivKey) {
+        put_mp_ssh2(bs, certkey->privateKey);
+    }
 }
 
 // Used just for looking up host keys for now, so skip
@@ -639,6 +656,32 @@ static char * ecc_cert_cache_str(ssh_key *key)
         p[0] = '\0';
         return p;
     }
+}
+
+static key_components *ecc_cert_components(ssh_key *key)
+{
+    struct ecdsa_cert_key *certkey = container_of(key, struct ecdsa_cert_key, sshk);
+    struct ecdsa_key eckey;
+
+    eckey.curve = certkey->curve;
+    eckey.publicKey = certkey->publicKey;
+    eckey.privateKey = certkey->privateKey;
+    eckey.sshk.vt = key->vt->extra;
+
+    return ssh_key_components(&eckey.sshk);
+}
+
+static key_components *ed_cert_components(ssh_key *key)
+{
+    struct eddsa_cert_key *certkey = container_of(key, struct eddsa_cert_key, sshk);
+    struct eddsa_key eckey;
+
+    eckey.curve = certkey->curve;
+    eckey.publicKey = certkey->publicKey;
+    eckey.privateKey = certkey->privateKey;
+    eckey.sshk.vt = key->vt->extra;
+
+    return ssh_key_components(&eckey.sshk);
 }
 
 static int ecc_cert_pubkey_bits(const ssh_keyalg *self, ptrlen pub)
@@ -676,185 +719,161 @@ static int ed_cert_pubkey_bits(const ssh_keyalg *self, ptrlen pub)
 }
 
 const ssh_keyalg ssh_ecdsa_cert_nistp256 = {
-        ecc_cert_new_pub,
-        ecc_cert_new_priv,
-        ecc_cert_new_priv_openssh,
-
-        ecc_cert_freekey,
-        ecc_cert_signkey_invalid,
-        ecc_cert_sign,
-        ecc_cert_verify,
-        ecc_cert_public_blob,
-        ecc_cert_private_blob,
-        ecc_cert_openssh_blob,
-        ecc_cert_cache_str,
-        ecc_cert_real_public_blob,
-
-        ecc_cert_pubkey_bits,
-
-        "ecdsa-sha2-nistp256-cert-v01@openssh.com",
-        "ecdsa-sha2-nistp256-cert-v01",
-        &ssh_ecdsa_nistp256,
-        0
+        .new_pub                = ecc_cert_new_pub,
+        .new_priv               = ecc_cert_new_priv,
+        .new_priv_openssh       = ecc_cert_new_priv_openssh,
+        .freekey                = ecc_cert_freekey,
+        .invalid                = ecc_cert_signkey_invalid,
+        .sign                   = ecc_cert_sign,
+        .verify                 = ecc_cert_verify,
+        .public_blob            = ecc_cert_public_blob,
+        .private_blob           = ecc_cert_private_blob,
+        .openssh_blob           = ecc_cert_openssh_blob,
+        .cache_str              = ecc_cert_cache_str,
+        .real_public_blob       = ecc_cert_real_public_blob,
+        .components             = ecc_cert_components,
+        .pubkey_bits            = ecc_cert_pubkey_bits,
+        .ssh_id                 = "ecdsa-sha2-nistp256-cert-v01@openssh.com",
+        .cache_id               = "ecdsa-sha2-nistp256-cert-v01",
+        .extra                  = &ssh_ecdsa_nistp256,
 };
 
 const ssh_keyalg ssh_ecdsa_cert_nistp384 = {
-        ecc_cert_new_pub,
-        ecc_cert_new_priv,
-        ecc_cert_new_priv_openssh,
-
-        ecc_cert_freekey,
-        ecc_cert_signkey_invalid,
-        ecc_cert_sign,
-        ecc_cert_verify,
-        ecc_cert_public_blob,
-        ecc_cert_private_blob,
-        ecc_cert_openssh_blob,
-        ecc_cert_cache_str,
-        ecc_cert_real_public_blob,
-
-        ecc_cert_pubkey_bits,
-
-        "ecdsa-sha2-nistp384-cert-v01@openssh.com",
-        "ecdsa-sha2-nistp384-cert-v01",
-        &ssh_ecdsa_nistp384,
-        0
+        .new_pub                = ecc_cert_new_pub,
+        .new_priv               = ecc_cert_new_priv,
+        .new_priv_openssh       = ecc_cert_new_priv_openssh,
+        .freekey                = ecc_cert_freekey,
+        .invalid                = ecc_cert_signkey_invalid,
+        .sign                   = ecc_cert_sign,
+        .verify                 = ecc_cert_verify,
+        .public_blob            = ecc_cert_public_blob,
+        .private_blob           = ecc_cert_private_blob,
+        .openssh_blob           = ecc_cert_openssh_blob,
+        .cache_str              = ecc_cert_cache_str,
+        .real_public_blob       = ecc_cert_real_public_blob,
+        .components             = ecc_cert_components,
+        .pubkey_bits            = ecc_cert_pubkey_bits,
+        .ssh_id                 = "ecdsa-sha2-nistp384-cert-v01@openssh.com",
+        .cache_id               = "ecdsa-sha2-nistp384-cert-v01",
+        .extra                  = &ssh_ecdsa_nistp384,
 };
 
 const ssh_keyalg ssh_ecdsa_cert_nistp521 = {
-        ecc_cert_new_pub,
-        ecc_cert_new_priv,
-        ecc_cert_new_priv_openssh,
-
-        ecc_cert_freekey,
-        ecc_cert_signkey_invalid,
-        ecc_cert_sign,
-        ecc_cert_verify,
-        ecc_cert_public_blob,
-        ecc_cert_private_blob,
-        ecc_cert_openssh_blob,
-        ecc_cert_cache_str,
-        ecc_cert_real_public_blob,
-
-        ecc_cert_pubkey_bits,
-
-        "ecdsa-sha2-nistp521-cert-v01@openssh.com",
-        "ecdsa-sha2-nistp521-cert-v01",
-        &ssh_ecdsa_nistp521,
-        0
+        .new_pub                = ecc_cert_new_pub,
+        .new_priv               = ecc_cert_new_priv,
+        .new_priv_openssh       = ecc_cert_new_priv_openssh,
+        .freekey                = ecc_cert_freekey,
+        .invalid                = ecc_cert_signkey_invalid,
+        .sign                   = ecc_cert_sign,
+        .verify                 = ecc_cert_verify,
+        .public_blob            = ecc_cert_public_blob,
+        .private_blob           = ecc_cert_private_blob,
+        .openssh_blob           = ecc_cert_openssh_blob,
+        .cache_str              = ecc_cert_cache_str,
+        .real_public_blob       = ecc_cert_real_public_blob,
+        .components             = ecc_cert_components,
+        .pubkey_bits            = ecc_cert_pubkey_bits,
+        .ssh_id                 = "ecdsa-sha2-nistp521-cert-v01@openssh.com",
+        .cache_id               = "ecdsa-sha2-nistp521-cert-v01",
+        .extra                  = &ssh_ecdsa_nistp521,
 };
 
 const ssh_keyalg ssh_ecdsa_cert_ed25519 = {
-        ed_cert_new_pub,
-        ed_cert_new_priv,
-        ed_cert_new_priv_openssh,
-
-        ed_cert_freekey,
-        ecc_cert_signkey_invalid,
-        ed_cert_sign,
-        ed_cert_verify,
-        ed_cert_public_blob,
-        ed_cert_private_blob,
-        ecc_cert_openssh_blob,
-        ecc_cert_cache_str,
-        ed_cert_real_public_blob,
-
-        ed_cert_pubkey_bits,
-
-        "ssh-ed25519-cert-v01@openssh.com",
-        "ssh-ed25519-cert-v01",
-        &ssh_ecdsa_ed25519,
-        0
+        .new_pub                = ed_cert_new_pub,
+        .new_priv               = ed_cert_new_priv,
+        .new_priv_openssh       = ed_cert_new_priv_openssh,
+        .freekey                = ed_cert_freekey,
+        .invalid                = ecc_cert_signkey_invalid,
+        .sign                   = ed_cert_sign,
+        .verify                 = ed_cert_verify,
+        .public_blob            = ed_cert_public_blob,
+        .private_blob           = ed_cert_private_blob,
+        .openssh_blob           = ed_cert_openssh_blob,
+        .cache_str              = ecc_cert_cache_str,
+        .real_public_blob       = ed_cert_real_public_blob,
+        .components             = ed_cert_components,
+        .pubkey_bits            = ed_cert_pubkey_bits,
+        .ssh_id                 = "ssh-ed25519-cert-v01@openssh.com",
+        .cache_id               = "ssh-ed25519-cert-v01",
+        .extra                  = &ssh_ecdsa_ed25519,
 };
 
 const ssh_keyalg ssh_ecdsa_cert_nistp256_hostkey = {
-        ecc_cert_new_pub,
-        ecc_cert_new_priv,
-        ecc_cert_new_priv_openssh,
-
-        ecc_cert_freekey,
-        ecc_cert_signkey_invalid,
-        ecc_cert_sign,
-        ecc_cert_verify,
-        ecc_cert_signature_public_blob,
-        ecc_cert_private_blob,
-        ecc_cert_openssh_blob,
-        ecc_cert_cache_str,
-        ecc_cert_real_public_blob,
-
-        ecc_cert_pubkey_bits,
-
-        "ecdsa-sha2-nistp256-cert-v01@openssh.com",
-        "ecdsa-sha2-nistp256-cert-v01",
-        &ssh_ecdsa_nistp256,
-        0
+        .new_pub                = ecc_cert_new_pub,
+        .new_priv               = ecc_cert_new_priv,
+        .new_priv_openssh       = ecc_cert_new_priv_openssh,
+        .freekey                = ecc_cert_freekey,
+        .invalid                = ecc_cert_signkey_invalid,
+        .sign                   = ecc_cert_sign,
+        .verify                 = ecc_cert_verify,
+        .public_blob            = ecc_cert_signature_public_blob,
+        .private_blob           = ecc_cert_private_blob,
+        .openssh_blob           = ecc_cert_openssh_blob,
+        .cache_str              = ecc_cert_cache_str,
+        .real_public_blob       = ecc_cert_real_public_blob,
+        .components             = ecc_cert_components,
+        .pubkey_bits            = ecc_cert_pubkey_bits,
+        .ssh_id                 = "ecdsa-sha2-nistp256-cert-v01@openssh.com",
+        .cache_id               = "ecdsa-sha2-nistp256-cert-v01",
+        .extra                  = &ssh_ecdsa_nistp256,
 };
 
 const ssh_keyalg ssh_ecdsa_cert_nistp384_hostkey = {
-        ecc_cert_new_pub,
-        ecc_cert_new_priv,
-        ecc_cert_new_priv_openssh,
-
-        ecc_cert_freekey,
-        ecc_cert_signkey_invalid,
-        ecc_cert_sign,
-        ecc_cert_verify,
-        ecc_cert_signature_public_blob,
-        ecc_cert_private_blob,
-        ecc_cert_openssh_blob,
-        ecc_cert_cache_str,
-        ecc_cert_real_public_blob,
-
-        ecc_cert_pubkey_bits,
-
-        "ecdsa-sha2-nistp384-cert-v01@openssh.com",
-        "ecdsa-sha2-nistp384-cert-v01",
-        &ssh_ecdsa_nistp384,
-        0
+        .new_pub                = ecc_cert_new_pub,
+        .new_priv               = ecc_cert_new_priv,
+        .new_priv_openssh       = ecc_cert_new_priv_openssh,
+        .freekey                = ecc_cert_freekey,
+        .invalid                = ecc_cert_signkey_invalid,
+        .sign                   = ecc_cert_sign,
+        .verify                 = ecc_cert_verify,
+        .public_blob            = ecc_cert_signature_public_blob,
+        .private_blob           = ecc_cert_private_blob,
+        .openssh_blob           = ecc_cert_openssh_blob,
+        .cache_str              = ecc_cert_cache_str,
+        .real_public_blob       = ecc_cert_real_public_blob,
+        .components             = ecc_cert_components,
+        .pubkey_bits            = ecc_cert_pubkey_bits,
+        .ssh_id                 = "ecdsa-sha2-nistp384-cert-v01@openssh.com",
+        .cache_id               = "ecdsa-sha2-nistp384-cert-v01",
+        .extra                  = &ssh_ecdsa_nistp384,
 };
 
 const ssh_keyalg ssh_ecdsa_cert_nistp521_hostkey = {
-        ecc_cert_new_pub,
-        ecc_cert_new_priv,
-        ecc_cert_new_priv_openssh,
-
-        ecc_cert_freekey,
-        ecc_cert_signkey_invalid,
-        ecc_cert_sign,
-        ecc_cert_verify,
-        ecc_cert_signature_public_blob,
-        ecc_cert_private_blob,
-        ecc_cert_openssh_blob,
-        ecc_cert_cache_str,
-        ecc_cert_real_public_blob,
-
-        ecc_cert_pubkey_bits,
-
-        "ecdsa-sha2-nistp521-cert-v01@openssh.com",
-        "ecdsa-sha2-nistp521-cert-v01",
-        &ssh_ecdsa_nistp521,
-        0
+        .new_pub                = ecc_cert_new_pub,
+        .new_priv               = ecc_cert_new_priv,
+        .new_priv_openssh       = ecc_cert_new_priv_openssh,
+        .freekey                = ecc_cert_freekey,
+        .invalid                = ecc_cert_signkey_invalid,
+        .sign                   = ecc_cert_sign,
+        .verify                 = ecc_cert_verify,
+        .public_blob            = ecc_cert_signature_public_blob,
+        .private_blob           = ecc_cert_private_blob,
+        .openssh_blob           = ecc_cert_openssh_blob,
+        .cache_str              = ecc_cert_cache_str,
+        .real_public_blob       = ecc_cert_real_public_blob,
+        .components             = ecc_cert_components,
+        .pubkey_bits            = ecc_cert_pubkey_bits,
+        .ssh_id                 = "ecdsa-sha2-nistp521-cert-v01@openssh.com",
+        .cache_id               = "ecdsa-sha2-nistp521-cert-v01",
+        .extra                  = &ssh_ecdsa_nistp521,
 };
 
 const ssh_keyalg ssh_ecdsa_cert_ed25519_hostkey = {
-        ed_cert_new_pub,
-        ed_cert_new_priv,
-        ed_cert_new_priv_openssh,
-
-        ed_cert_freekey,
-        ecc_cert_signkey_invalid,
-        ed_cert_sign,
-        ed_cert_verify,
-        ed_cert_signature_public_blob,
-        ed_cert_private_blob,
-        ecc_cert_openssh_blob,
-        ecc_cert_cache_str,
-        ed_cert_real_public_blob,
-
-        ed_cert_pubkey_bits,
-
-        "ssh-ed25519-cert-v01@openssh.com",
-        "ssh-ed25519-cert-v01",
-        &ssh_ecdsa_ed25519,
-        0
+        .new_pub                = ed_cert_new_pub,
+        .new_priv               = ed_cert_new_priv,
+        .new_priv_openssh       = ed_cert_new_priv_openssh,
+        .freekey                = ed_cert_freekey,
+        .invalid                = ecc_cert_signkey_invalid,
+        .sign                   = ed_cert_sign,
+        .verify                 = ed_cert_verify,
+        .public_blob            = ed_cert_signature_public_blob,
+        .private_blob           = ed_cert_private_blob,
+        .openssh_blob           = ecc_cert_openssh_blob,
+        .cache_str              = ecc_cert_cache_str,
+        .real_public_blob       = ed_cert_real_public_blob,
+        .components             = ed_cert_components,
+        .pubkey_bits            = ed_cert_pubkey_bits,
+        .ssh_id                 = "ssh-ed25519-cert-v01@openssh.com",
+        .cache_id               = "ssh-ed25519-cert-v01",
+        .extra                  = &ssh_ecdsa_ed25519,
 };

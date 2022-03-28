@@ -85,9 +85,9 @@ int pkcs11_add_provider(struct ssh2_pkcs11_provider* provider) {
         }
         // step 7d: check if pin required
         bool needLogin = token.flags & CKF_LOGIN_REQUIRED;
-        if (needLogin && !provider->pin.len) {
+        if (needLogin && !strlen(provider->pin)) {
             /* token requires a pin, but none present */
-            status = PKCS11_INVAID_PIN;
+            status = PKCS11_INVALID_PIN;
             continue;
         }
         // step 7e: open session
@@ -99,10 +99,10 @@ int pkcs11_add_provider(struct ssh2_pkcs11_provider* provider) {
         }
         // step 7f: log in if required
         if (needLogin) {
-            retVal = funcList->C_Login(provider->tokens[ii].session, CKU_USER, (CK_UTF8CHAR_PTR)(provider->pin.ptr), provider->pin.len);
+            retVal = funcList->C_Login(provider->tokens[ii].session, CKU_USER, (CK_UTF8CHAR_PTR)(provider->pin), strlen(provider->pin));
             if (retVal != CKR_OK && retVal != CKR_USER_ALREADY_LOGGED_IN) {
                 /* failed to log in. cleanup and skip token */
-                status = PKCS11_INVAID_PIN;
+                status = PKCS11_INVALID_PIN;
                 if ((retVal = funcList->C_CloseSession(provider->tokens[ii].session)) != CKR_OK) {
                     /* error cleaning up and closing session */
                     /* TODO - log error */
@@ -167,16 +167,16 @@ void pkcs11_del_provider(struct ssh2_pkcs11_provider* provider) {
 void pkcs11_free_provider(struct ssh2_pkcs11_provider* provider) {
     for (int ii = 0; ii < provider->nslots; ++ii) {
         for (int jj = 0; jj < provider->tokens[ii].num_keys; ++jj) {
-            if (provider->tokens[ii].keys[jj].comment)
-                sfree(provider->tokens[ii].keys[jj].comment);
-            if (provider->tokens[ii].keys[jj].key)
-                ssh_key_free(provider->tokens[ii].keys[jj].key);
+            if (provider->tokens[ii].keys[jj].pubblob) {
+                strbuf_free(provider->tokens[ii].keys[jj].pubblob);
+                strbuf_free(provider->tokens[ii].keys[jj].privblob);
+            }
         }
         sfree(provider->tokens[ii].keys);
     }
     sfree(provider->tokens);
     sfree(provider->slots);
-    sfree((void*)provider->pin.ptr);
+    sfree((void*)provider->pin);
     sfree((void*)provider->id);
 }
 
@@ -206,10 +206,10 @@ int pkcs11_refresh_provider(struct ssh2_pkcs11_provider* provider) {
     // step 5a: clean up old slots
     for (int ii = 0; ii < provider->nslots; ++ii) {
         for (int jj = 0; jj < provider->tokens[ii].num_keys; ++jj) {
-            if (provider->tokens[ii].keys[jj].comment)
-                sfree(provider->tokens[ii].keys[jj].comment);
-            if (provider->tokens[ii].keys[jj].key)
-                ssh_key_free(provider->tokens[ii].keys[jj].key);
+            if (provider->tokens[ii].keys[jj].pubblob) {
+                strbuf_free(provider->tokens[ii].keys[jj].pubblob);
+                strbuf_free(provider->tokens[ii].keys[jj].privblob);
+            }
         }
         sfree(provider->tokens[ii].keys);
         if (provider->tokens[ii].session) {
@@ -263,9 +263,9 @@ int pkcs11_refresh_provider(struct ssh2_pkcs11_provider* provider) {
         }
         // step 7d: check if pin required
         bool needLogin = token.flags & CKF_LOGIN_REQUIRED;
-        if (needLogin && !provider->pin.len) {
+        if (needLogin && !strlen(provider->pin)) {
             /* token requires a pin, but none present */
-            status = PKCS11_INVAID_PIN;
+            status = PKCS11_INVALID_PIN;
             continue;
         }
         // step 7e: open session
@@ -277,10 +277,10 @@ int pkcs11_refresh_provider(struct ssh2_pkcs11_provider* provider) {
         }
         // step 7f: log in if required
         if (needLogin) {
-            retVal = funcList->C_Login(provider->tokens[ii].session, CKU_USER, (CK_UTF8CHAR_PTR)(provider->pin.ptr), provider->pin.len);
+            retVal = funcList->C_Login(provider->tokens[ii].session, CKU_USER, (CK_UTF8CHAR_PTR)(provider->pin), strlen(provider->pin));
             if (retVal != CKR_OK && retVal != CKR_USER_ALREADY_LOGGED_IN) {
                 /* failed to log in. cleanup and skip token */
-                status = PKCS11_INVAID_PIN;
+                status = PKCS11_INVALID_PIN;
                 if ((retVal = funcList->C_CloseSession(provider->tokens[ii].session)) != CKR_OK) {
                     /* error cleaning up and closing session */
                     /* TODO - log error */
@@ -343,8 +343,8 @@ int pkcs11_fetch_pub_keys(struct ssh2_pkcs11_provider* provider, CK_ULONG idx)
         return 0;
     }
 
-    provider->tokens[idx].keys = snewn(objsFound, struct ssh2_userkey);
-    memset(provider->tokens[idx].keys, 0, sizeof(struct ssh2_userkey) * objsFound);
+    provider->tokens[idx].keys = snewn(objsFound, struct ssh2_pkcs11_key);
+    memset(provider->tokens[idx].keys, 0, sizeof(struct ssh2_pkcs11_key) * objsFound);
     provider->tokens[idx].num_keys = objsFound;
 
     for (int ii = 0; ii < objsFound; ++ii) {
@@ -411,17 +411,15 @@ int pkcs11_fetch_pub_keys(struct ssh2_pkcs11_provider* provider, CK_ULONG idx)
             }
 
             if (alg != NULL) {
-                ssh_key *sshk = ssh_key_new_priv(alg, ptrlen_from_strbuf(pubblob), ptrlen_from_strbuf(privblob));
-                if (sshk) {
                     /* we found a valid key. store it */
-                    provider->tokens[idx].keys[ii].key = sshk;
-                    provider->tokens[idx].keys[ii].comment = dupprintf("%s", provider->id);
+                    provider->tokens[idx].keys[ii].alg = alg;
+                    provider->tokens[idx].keys[ii].pubblob = pubblob;
+                    provider->tokens[idx].keys[ii].privblob = privblob;
                     numFound++;
-                }
+            } else {
+                strbuf_free(pubblob);
+                strbuf_free(privblob);
             }
-
-            strbuf_free(pubblob);
-            strbuf_free(privblob);
         }
 
         /* free allocated memory */
@@ -434,33 +432,3 @@ int pkcs11_fetch_pub_keys(struct ssh2_pkcs11_provider* provider, CK_ULONG idx)
 
     return numFound;
 }
-
-void pkcs11_add_keys(struct ssh2_pkcs11_provider* provider, tree234* tree)
-{
-    int ii, jj;
-    for (ii = 0; ii < provider->nslots; ++ii) {
-        for (jj = 0; jj < provider->tokens[ii].num_keys; ++jj) {
-            struct ssh2_userkey *key = provider->tokens[ii].keys+jj;
-            if (key->key == NULL)
-                continue;
-            if (add234(tree, key) != key) {
-                /* failed to add key to tree */
-                /* log the error, but continue with the other keys */
-            }
-        }
-    }
-}
-
-void pkcs11_remove_keys(struct ssh2_pkcs11_provider* provider, tree234* tree, cmpfn234 fcn)
-{
-    int ii, jj;
-    for (ii = 0; ii < provider->nslots; ++ii) {
-        for (jj = 0; jj < provider->tokens[ii].num_keys; ++jj) {
-            struct ssh2_userkey *key = find234(tree, provider->tokens[ii].keys+jj, fcn);
-
-            if (key != NULL)
-                del234(tree, key);
-        }
-    }
-}
-

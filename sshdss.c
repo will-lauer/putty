@@ -72,8 +72,10 @@ static char *dss_cache_str(ssh_key *key)
     struct dss_key *dss = container_of(key, struct dss_key, sshk);
     strbuf *sb = strbuf_new();
 
-    if (!dss->p)
+    if (!dss->p) {
+        strbuf_free(sb);
         return NULL;
+    }
 
     append_hex_to_strbuf(sb, dss->p);
     append_hex_to_strbuf(sb, dss->q);
@@ -81,6 +83,23 @@ static char *dss_cache_str(ssh_key *key)
     append_hex_to_strbuf(sb, dss->y);
 
     return strbuf_to_str(sb);
+}
+
+static key_components *dss_components(ssh_key *key)
+{
+    struct dss_key *dss = container_of(key, struct dss_key, sshk);
+    key_components *kc = key_components_new();
+
+    key_components_add_text(kc, "key_type", "DSA");
+    assert(dss->p);
+    key_components_add_mp(kc, "p", dss->p);
+    key_components_add_mp(kc, "q", dss->q);
+    key_components_add_mp(kc, "g", dss->g);
+    key_components_add_mp(kc, "public_y", dss->y);
+    if (dss->x)
+        key_components_add_mp(kc, "private_x", dss->x);
+
+    return kc;
 }
 
 static char *dss_invalid(ssh_key *key, unsigned flags)
@@ -466,24 +485,20 @@ static void dss_sign(ssh_key *key, ptrlen data, unsigned flags, BinarySink *bs)
 }
 
 const ssh_keyalg ssh_dss = {
-    dss_new_pub,
-    dss_new_priv,
-    dss_new_priv_openssh,
-
-    dss_freekey,
-    dss_invalid,
-    dss_sign,
-    dss_verify,
-    dss_public_blob,
-    dss_private_blob,
-    dss_openssh_blob,
-    dss_cache_str,
-    dss_public_blob,
-
-    dss_pubkey_bits,
-
-    "ssh-dss",
-    "dss",
-    NULL,
-    0, /* no supported flags */
+    .new_pub = dss_new_pub,
+    .new_priv = dss_new_priv,
+    .new_priv_openssh = dss_new_priv_openssh,
+    .freekey = dss_freekey,
+    .invalid = dss_invalid,
+    .sign = dss_sign,
+    .verify = dss_verify,
+    .public_blob = dss_public_blob,
+    .private_blob = dss_private_blob,
+    .openssh_blob = dss_openssh_blob,
+    .cache_str = dss_cache_str,
+    .real_public_blob = dss_public_blob,
+    .components = dss_components,
+    .pubkey_bits = dss_pubkey_bits,
+    .ssh_id = "ssh-dss",
+    .cache_id = "dss",
 };
