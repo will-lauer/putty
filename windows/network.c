@@ -1267,7 +1267,8 @@ static Socket *sk_newlistener_internal(
 #if HAVE_AFUNIX_H
       case AF_UNIX: {
         au.sun_family = AF_UNIX;
-        strncpy(au.sun_path, srcaddr, sizeof(au.sun_path));
+        strncpy(au.sun_path, srcaddr, sizeof(au.sun_path)-1);
+        au.sun_path[sizeof(au.sun_path)-1] = 0;
         bindaddr = (struct sockaddr *)&au;
         bindsize = sizeof(au);
         break;
