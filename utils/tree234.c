@@ -1389,7 +1389,7 @@ void findtest(void)
     };
     int i, j, rel, index;
     char *p, *ret, *realret, *realret2;
-    int lo, hi, mid, c;
+    int lo, hi, mid = 0, c = 0;
 
     for (i = 0; i < NSTR; i++) {
         p = strings[i];
