@@ -241,6 +241,17 @@ int pageant_sign(struct pageant_pubkey *key, ptrlen message, strbuf *out,
                  uint32_t flags, char **retstr);
 
 /*
+ * Functions to perform provider updates
+ */
+typedef void (*pageant_provider_enum_fn_t)(void *ctx, ptrlen readerid);
+int pageant_add_providerfile(Filename* filename, const char* passphrase,
+                         char **retstr);
+int pageant_delete_providerfile(const char* readerid, char **retstr);
+int pageant_refresh_providerfile(const char *readerid, char **retstr);
+int pageant_enum_providers(pageant_provider_enum_fn_t callback, void* callback_ctx,
+                            char **retstr);
+
+/*
  * Definitions for agent protocol extensions.
  */
 #define PUTTYEXT(base) base "@putty.projects.tartarus.org"
@@ -251,6 +262,8 @@ int pageant_sign(struct pageant_pubkey *key, ptrlen message, strbuf *out,
     X(EXT_REENCRYPT, PUTTYEXT("reencrypt"))             \
     X(EXT_REENCRYPT_ALL, PUTTYEXT("reencrypt-all"))     \
     X(EXT_LIST_EXTENDED, PUTTYEXT("list-extended"))     \
+    X(EXT_LIST_PROVIDER, PUTTYEXT("list-providers"))    \
+    X(EXT_REFRESH_PROVIDER, PUTTYEXT("refresh-provider"))\
     /* end of list */
 
 #define LIST_EXTENDED_FLAG_HAS_ENCRYPTED_KEY_FILE    1

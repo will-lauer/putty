@@ -514,6 +514,22 @@ struct ec_curve {
     };
 };
 
+struct ecsign_extra {
+    struct ec_curve *(*curve)(void);
+    const ssh_hashalg *hash;
+
+    /* These fields are used by the OpenSSH PEM format importer/exporter */
+    const unsigned char *oid;
+    int oidlen;
+
+    /* Human-readable algorithm description */
+    const char *alg_desc;
+
+    /* Some EdDSA instances prefix a string to all hash preimages, to
+     * disambiguate which signature variant they're being used with */
+    ptrlen hash_prefix;
+};
+
 const ssh_keyalg *ec_alg_by_oid(int len, const void *oid,
                                 const struct ec_curve **curve);
 const unsigned char *ec_alg_oid(const ssh_keyalg *alg, int *oidlen);
@@ -525,6 +541,20 @@ bool ec_nist_alg_and_curve_by_bits(int bits,
 bool ec_ed_alg_and_curve_by_bits(int bits,
                                  const struct ec_curve **curve,
                                  const ssh_keyalg **alg);
+char *ecc_cache_str_shared(
+    const char *curve_name, mp_int *x, mp_int *y);
+
+WeierstrassPoint *ecdsa_decode(
+    ptrlen encoded, const struct ec_curve *curve);
+#define get_wpoint(src, curve) \
+    BinarySource_get_wpoint(BinarySource_UPCAST(src), curve)
+WeierstrassPoint *BinarySource_get_wpoint(
+    BinarySource *src, const struct ec_curve *curve);
+#define put_wpoint(bs, point, curve, bare)                              \
+    BinarySink_put_wpoint(BinarySink_UPCAST(bs), point, curve, bare)
+void BinarySink_put_wpoint(
+    BinarySink *bs, WeierstrassPoint *point, const struct ec_curve *curve,
+    bool bare);
 
 struct ecdsa_key {
     const struct ec_curve *curve;
@@ -627,6 +657,8 @@ strbuf *ssh_rsakex_encrypt(
     RSAKey *key, const ssh_hashalg *h, ptrlen plaintext);
 mp_int *ssh_rsakex_decrypt(
     RSAKey *key, const ssh_hashalg *h, ptrlen ciphertext);
+unsigned char *rsa_pkcs1_signature_string(
+    size_t nbytes, const ssh_hashalg *halg, ptrlen data);
 
 /*
  * Helper function for k generation in DSA, reused in ECDSA
@@ -1184,6 +1216,9 @@ extern const ssh_kexes ssh_ecdh_kex;
 extern const ssh_kexes ssh_ntru_hybrid_kex;
 extern const ssh_keyalg ssh_dsa;
 extern const ssh_keyalg ssh_rsa;
+extern const ssh_keyalg ssh_rsa_pkcs11;
+extern const ssh_keyalg ssh_rsa_pkcs11_sha256;
+extern const ssh_keyalg ssh_rsa_pkcs11_sha512;
 extern const ssh_keyalg ssh_rsa_sha256;
 extern const ssh_keyalg ssh_rsa_sha512;
 extern const ssh_keyalg ssh_ecdsa_ed25519;
@@ -1191,6 +1226,7 @@ extern const ssh_keyalg ssh_ecdsa_ed448;
 extern const ssh_keyalg ssh_ecdsa_nistp256;
 extern const ssh_keyalg ssh_ecdsa_nistp384;
 extern const ssh_keyalg ssh_ecdsa_nistp521;
+extern const ssh_keyalg ssh_ecds_pkcs11;
 extern const ssh_keyalg opensshcert_ssh_dsa;
 extern const ssh_keyalg opensshcert_ssh_rsa;
 extern const ssh_keyalg opensshcert_ssh_rsa_sha256;
@@ -1783,6 +1819,9 @@ enum {
 #define SSH2_AGENTC_ADD_IDENTITY                17
 #define SSH2_AGENTC_REMOVE_IDENTITY             18
 #define SSH2_AGENTC_REMOVE_ALL_IDENTITIES       19
+#define SSH2_AGENTC_ADD_SMARTCARD_KEY           20
+#define SSH2_AGENTC_REMOVE_SMARTCARD_KEY        21
+#define SSH2_AGENTC_ADD_ID_CONSTRAINED          25
 #define SSH2_AGENTC_EXTENSION                   27
 #define SSH_AGENT_EXTENSION_FAILURE             28
 
