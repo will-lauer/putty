@@ -92,6 +92,8 @@ Makefile
 /doc/*.hhk
 /doc/licence.but
 /doc/copy.but
+/doc/html/
+/docbuild/
 /icons/*.pam
 /icons/*.png
 /icons/*.ico
@@ -140,3 +142,7 @@ Makefile
 /windows/*.msi
 /windows/*.wixobj
 /windows/*.wixpdb
+/windows/*.bmp
+/windows/build64/
+/windows/build64d/
+

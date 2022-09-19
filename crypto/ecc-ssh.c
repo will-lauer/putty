@@ -317,22 +317,6 @@ static struct ec_curve *ec_ed448(void)
  * Public point from private
  */
 
-struct ecsign_extra {
-    struct ec_curve *(*curve)(void);
-    const ssh_hashalg *hash;
-
-    /* These fields are used by the OpenSSH PEM format importer/exporter */
-    const unsigned char *oid;
-    int oidlen;
-
-    /* Human-readable algorithm description */
-    const char *alg_desc;
-
-    /* Some EdDSA instances prefix a string to all hash preimages, to
-     * disambiguate which signature variant they're being used with */
-    ptrlen hash_prefix;
-};
-
 WeierstrassPoint *ecdsa_public(mp_int *private_key, const ssh_keyalg *alg)
 {
     const struct ecsign_extra *extra =
@@ -415,7 +399,7 @@ static void BinarySink_put_mp_le_fixedlen(BinarySink *bs, mp_int *x,
 #define put_mp_le_fixedlen(bs, x, bytes)                        \
     BinarySink_put_mp_le_fixedlen(BinarySink_UPCAST(bs), x, bytes)
 
-static WeierstrassPoint *ecdsa_decode(
+WeierstrassPoint *ecdsa_decode(
     ptrlen encoded, const struct ec_curve *curve)
 {
     assert(curve->type == EC_WEIERSTRASS);
@@ -473,7 +457,7 @@ static WeierstrassPoint *ecdsa_decode(
     return P;
 }
 
-static WeierstrassPoint *BinarySource_get_wpoint(
+WeierstrassPoint *BinarySource_get_wpoint(
     BinarySource *src, const struct ec_curve *curve)
 {
     ptrlen str = get_string(src);
@@ -484,7 +468,7 @@ static WeierstrassPoint *BinarySource_get_wpoint(
 #define get_wpoint(src, curve) \
     BinarySource_get_wpoint(BinarySource_UPCAST(src), curve)
 
-static void BinarySink_put_wpoint(
+void BinarySink_put_wpoint(
     BinarySink *bs, WeierstrassPoint *point, const struct ec_curve *curve,
     bool bare)
 {
@@ -681,7 +665,7 @@ static ssh_key *eddsa_new_pub(const ssh_keyalg *alg, ptrlen data)
     return &ek->sshk;
 }
 
-static char *ecc_cache_str_shared(
+char *ecc_cache_str_shared(
     const char *curve_name, mp_int *x, mp_int *y)
 {
     strbuf *sb = strbuf_new();
