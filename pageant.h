@@ -215,6 +215,7 @@ enum {
 };
 int pageant_add_keyfile(Filename *filename, const char *passphrase,
                         char **retstr, bool add_encrypted);
+int pageant_add_certfile(Filename *filename, char **retstr);
 void pageant_forget_passphrases(void);
 
 struct pageant_pubkey {

@@ -2547,7 +2547,7 @@ int pageant_add_keyfile(Filename *filename, const char *passphrase,
     *retstr = NULL;
 
     type = key_type(filename);
-    if (type != SSH_KEYTYPE_SSH1 && type != SSH_KEYTYPE_SSH2) {
+    if (type != SSH_KEYTYPE_SSH1 && type != SSH_KEYTYPE_SSH2 && type != SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH) {
         *retstr = dupprintf("Couldn't load this key (%s)",
                             key_type_to_str(type));
         return PAGEANT_ACTION_FAILURE;
@@ -2803,6 +2803,114 @@ int pageant_add_keyfile(Filename *filename, const char *passphrase,
             return PAGEANT_ACTION_FAILURE;
         }
     }
+    return PAGEANT_ACTION_OK;
+}
+
+int pageant_add_certfile(Filename *filename, char **retstr)
+{
+    ssh2_userkey *skey = NULL;
+    const char *error = NULL;
+    int type;
+
+    *retstr = NULL;
+
+    type = key_type(filename);
+    if (type != SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH) {
+        *retstr = dupprintf("Couldn't load this key (%s)",
+                            key_type_to_str(type));
+        return PAGEANT_ACTION_FAILURE;
+    }
+
+    /*
+     * See if the cert is already loaded (in the primary Pageant,
+     * which may or may not be us).
+     */
+    strbuf *blob = strbuf_new();
+    char *algname = NULL;
+    char *comment = NULL;
+    {
+        KeyList *kl;
+        // This will fill ing the blob, comment, and algorithm, which we use
+        // later to construct the certificate object.
+
+        // Then read the cert file
+        if (!ppk_loadpub_f(filename, &algname, BinarySink_UPCAST(blob),
+                           &comment, &error)) {
+            *retstr = dupprintf("Couldn't load certificate (%s)", error);
+            strbuf_free(blob);
+            if (algname) sfree(algname);
+            if (comment) sfree(comment);
+
+            return PAGEANT_ACTION_FAILURE;
+        }
+
+        // Get the list of keys
+        kl = pageant_get_keylist(2);
+
+        if (kl) {
+            if (kl->broken) {
+                *retstr = dupstr("Received broken key list from agent");
+                keylist_free(kl);
+                strbuf_free(blob);
+                if (algname) sfree(algname);
+                if (comment) sfree(comment);
+                return PAGEANT_ACTION_FAILURE;
+            }
+
+            // See if the certificate is already in the list of keys
+            for (size_t i = 0; i < kl->nkeys; i++) {
+                if (ptrlen_eq_ptrlen(ptrlen_from_strbuf(blob),
+                                     kl->keys[i].blob)) {
+                    /* Key is already present; we can now leave. */
+                    keylist_free(kl);
+                    strbuf_free(blob);
+                    if (algname) sfree(algname);
+                    if (comment) sfree(comment);
+                    return PAGEANT_ACTION_OK;
+                }
+            }
+
+            keylist_free(kl);
+        }
+    }
+
+    error = NULL;
+
+    const ssh_keyalg *alg = find_pubkey_alg(algname);
+    skey = snew(ssh2_userkey);
+    skey->comment = dupstr(comment ? comment : (!filename_is_null(filename) ? filename_to_str(filename) : ""));
+    skey->key = ssh_key_new_priv(alg, ptrlen_from_strbuf(blob),  ptrlen_from_asciz(""));
+
+    strbuf_free(blob);
+    if (comment) sfree(comment);
+    sfree(algname);
+
+    // if we failed to parse the certificate, error out.
+    if (!skey->key) {
+        *retstr = dupstr("Couldn't load this certificate");
+        sfree(skey->comment);
+        sfree(skey);
+        return PAGEANT_ACTION_FAILURE;
+    }
+
+    PageantClientOp *pco = pageant_client_op_new();
+    put_byte(pco, SSH2_AGENTC_ADD_IDENTITY);
+    put_stringz(pco, ssh_key_ssh_id(skey->key));
+    ssh_key_openssh_blob(skey->key, BinarySink_UPCAST(pco));
+
+    put_stringz(pco, skey->comment);
+    unsigned reply = pageant_client_op_query(pco);
+    pageant_client_op_free(pco);
+    sfree(skey->comment);
+    ssh_key_free(skey->key);
+    sfree(skey);
+
+    if (reply != SSH_AGENT_SUCCESS) {
+        *retstr = dupstr("The already running Pageant "
+                         "refused to add the key.");
+        return PAGEANT_ACTION_FAILURE;
+    }
+
     return PAGEANT_ACTION_OK;
 }
 

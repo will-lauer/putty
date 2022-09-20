@@ -54,6 +54,9 @@ static bool restrict_putty_acl = false;
 /* CWD for "add key" file requester. */
 static filereq *keypath = NULL;
 
+/* CWD for "add cert" file requester. */
+static filereq *certpath = NULL;
+
 /* CWD for "add provider" file requester. */
 static filereq *providerpath = NULL;
 
@@ -626,6 +629,78 @@ static void prompt_add_keyfile(bool encrypted)
     sfree(filelist);
 }
 
+static void win_add_certfile(Filename *filename)
+{
+    char *err;
+    int ret;
+
+    ret = pageant_add_certfile(filename, &err);
+    if (ret == PAGEANT_ACTION_OK) {
+        goto done;
+    } else if (ret == PAGEANT_ACTION_FAILURE) {
+        goto error;
+    }
+
+    error:
+    message_box(traywindow, err, APPNAME, MB_OK | MB_ICONERROR,
+            HELPCTXID(errors_cantloadkey));
+
+    done:
+    sfree(err);
+    return;
+}
+
+/*
+ * Prompt for a cert file to add, and add it.
+ */
+static void prompt_add_certfile(void)
+{
+    OPENFILENAME of;
+    char *filelist = snewn(8192, char);
+
+    if (!certpath) certpath = filereq_new();
+    memset(&of, 0, sizeof(of));
+    of.hwndOwner = traywindow;
+    of.lpstrFilter = FILTER_CERT_FILES;
+    of.lpstrCustomFilter = NULL;
+    of.nFilterIndex = 1;
+    of.lpstrFile = filelist;
+    *filelist = '\0';
+    of.nMaxFile = 8192;
+    of.lpstrFileTitle = NULL;
+    of.lpstrTitle = "Select Certificate File";
+    of.Flags = OFN_ALLOWMULTISELECT | OFN_EXPLORER;
+    if (request_file(certpath, &of, true, false)) {
+        if(strlen(filelist) > of.nFileOffset) {
+            /* Only one filename returned? */
+            Filename *fn = filename_from_str(filelist);
+            win_add_certfile(fn);
+            filename_free(fn);
+        } else {
+            /* we are returned a bunch of strings, end to
+             * end. first string is the directory, the
+             * rest the filenames. terminated with an
+             * empty string.
+             */
+            char *dir = filelist;
+            char *filewalker = filelist + strlen(dir) + 1;
+            while (*filewalker != '\0') {
+                char *filename = dupcat(dir, "\\", filewalker, NULL);
+                Filename *fn = filename_from_str(filename);
+                win_add_certfile(fn);
+                filename_free(fn);
+                sfree(filename);
+                filewalker += strlen(filewalker) + 1;
+            }
+        }
+
+        keylist_update();
+    }
+    sfree(filelist);
+}
+
+
+
 static void win_add_provider(Filename* filename)
 {
     char *err;
@@ -978,6 +1053,17 @@ static INT_PTR CALLBACK KeyListProc(HWND hwnd, UINT msg,
                 }
             }
             return 0;
+          case IDC_KEYLIST_ADDCERT:
+              if (HIWORD(wParam) == BN_CLICKED ||
+                  HIWORD(wParam) == BN_DOUBLECLICKED) {
+                  if (modal_passphrase_hwnd) {
+                      MessageBeep(MB_ICONERROR);
+                      SetForegroundWindow(modal_passphrase_hwnd);
+                      break;
+                  }
+                  prompt_add_certfile();
+              }
+              return 0;
           case IDC_KEYLIST_ADD_PROVIDER:
               if (HIWORD(wParam) == BN_CLICKED ||
                   HIWORD(wParam) == BN_DOUBLECLICKED) {
