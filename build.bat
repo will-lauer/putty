@@ -35,7 +35,7 @@ pushd docbuild
 setlocal
 set PATH=c:\users\wlauer\downloads;%PATH%
 cmake -G "MinGW Makefiles" ..\doc
-mingw32-make
+cmake --build .
 endlocal
 popd
 pushd doc
@@ -46,7 +46,7 @@ cp -r ../docbuild/html .
 popd
 
 REM cmake -G "MinGW Makefiles" . -DSTRICT=ON
-REM mingw32-make VERBOSE=1
+REM cmake --build . -t VERBOSE=1
 
 REM Windowsify LICENCE, since it's going in the Windows installer.
 perl -i~ -pe "y/\015//d;s/$/\015/" LICENCE
@@ -62,7 +62,7 @@ convert -size 493x58 canvas:white ( icons/putty-48.png -geometry +440+5 ) -compo
 mkdir windows\build64
 pushd windows\build64
 cmake -G "MinGW Makefiles" ../.. -DCMAKE_BUILD_TYPE=Release -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded -DCMAKE_C_FLAGS_RELEASE="-O2" -DSTRICT=ON
-mingw32-make VERBOSE=1
+cmake --build . -t VERBOSE=1
 popd
 
 pushd windows
