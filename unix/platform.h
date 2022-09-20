@@ -82,7 +82,8 @@ typedef void *HelpCtx;
 #define NULL_HELPCTX ((HelpCtx)NULL)
 #define HELPCTX(x) NULL
 #define FILTER_KEY_FILES NULL          /* FIXME */
-#define FILTER_PROVIDER_FILES          /* FIXME */
+#define FILTER_CERT_FILES NULL         /* FIXME */
+#define FILTER_PROVIDER_FILES NULL     /* FIXME */
 #define FILTER_DYNLIB_FILES NULL       /* FIXME */
 
 /*
