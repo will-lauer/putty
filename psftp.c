@@ -14,7 +14,6 @@
 #include "storage.h"
 #include "ssh.h"
 #include "sftp.h"
-#include "int64.h"
 
 const char *const appname = "PSFTP";
 
@@ -27,17 +26,43 @@ const char *const appname = "PSFTP";
 
 static int psftp_connect(char *userhost, char *user, int portnumber);
 static int do_sftp_init(void);
-void do_sftp_cleanup();
+static void do_sftp_cleanup(void);
 
 /* ----------------------------------------------------------------------
  * sftp client state.
  */
 
 char *pwd, *homedir;
-static Backend *back;
-static void *backhandle;
-static Conf *conf;
-int sent_eof = FALSE;
+static Backend *backend;
+Conf *conf;
+bool sent_eof = false;
+
+/* ------------------------------------------------------------
+ * Seat vtable.
+ */
+
+static int psftp_output(Seat *, bool is_stderr, const void *, int);
+static bool psftp_eof(Seat *);
+
+static const SeatVtable psftp_seat_vt = {
+    psftp_output,
+    psftp_eof,
+    filexfer_get_userpass_input,
+    nullseat_notify_remote_exit,
+    console_connection_fatal,
+    nullseat_update_specials_menu,
+    nullseat_get_ttymode,
+    nullseat_set_busy_status,
+    console_verify_ssh_host_key,
+    console_confirm_weak_crypto_primitive,
+    console_confirm_weak_cached_hostkey,
+    nullseat_is_never_utf8,
+    nullseat_echoedit_update,
+    nullseat_get_x_display,
+    nullseat_get_windowid,
+    nullseat_get_window_pixel_size,
+};
+static Seat psftp_seat[1] = {{ &psftp_seat_vt }};
 
 /* ----------------------------------------------------------------------
  * Manage sending requests and waiting for replies.
@@ -49,13 +74,17 @@ struct sftp_packet *sftp_wait_for_reply(struct sftp_request *req)
 
     sftp_register(req);
     pktin = sftp_recv();
-    if (pktin == NULL)
-        connection_fatal(NULL, "did not receive SFTP response packet "
-                         "from server");
+    if (pktin == NULL) {
+        seat_connection_fatal(
+            psftp_seat, "did not receive SFTP response packet from server");
+    }
     rreq = sftp_find_request(pktin);
-    if (rreq != req)
-        connection_fatal(NULL, "unable to understand SFTP response packet "
-                         "from server: %s", fxp_error());
+    if (rreq != req) {
+        seat_connection_fatal(
+            psftp_seat,
+            "unable to understand SFTP response packet from server: %s",
+            fxp_error());
+    }
     return pktin;
 }
 
@@ -198,15 +227,15 @@ static void not_connected(void)
 /* ----------------------------------------------------------------------
  * The meat of the `get' and `put' commands.
  */
-int sftp_get_file(char *fname, char *outfname, int recurse, int restart)
+bool sftp_get_file(char *fname, char *outfname, bool recurse, bool restart)
 {
     struct fxp_handle *fh;
     struct sftp_packet *pktin;
     struct sftp_request *req;
     struct fxp_xfer *xfer;
-    uint64 offset;
+    uint64_t offset;
     WFile *file;
-    int ret, shown_err = FALSE;
+    bool toret, shown_err = false;
     struct fxp_attrs attrs;
 
     /*
@@ -215,7 +244,7 @@ int sftp_get_file(char *fname, char *outfname, int recurse, int restart)
      * subsequent FXP_OPEN will return a usable error message.)
      */
     if (recurse) {
-	int result;
+	bool result;
 
         req = fxp_stat_send(fname);
         pktin = sftp_wait_for_reply(req);
@@ -238,7 +267,7 @@ int sftp_get_file(char *fname, char *outfname, int recurse, int restart)
 	    if (file_type(outfname) != FILE_TYPE_DIRECTORY &&
 		!create_directory(outfname)) {
 		printf("%s: Cannot create directory\n", outfname);
-		return 0;
+		return false;
 	    }
 
 	    /*
@@ -252,7 +281,7 @@ int sftp_get_file(char *fname, char *outfname, int recurse, int restart)
 	    if (!dirhandle) {
 		printf("%s: unable to open directory: %s\n",
 		       fname, fxp_error());
-		return 0;
+		return false;
 	    }
 	    nnames = namesize = 0;
 	    ournames = NULL;
@@ -273,7 +302,7 @@ int sftp_get_file(char *fname, char *outfname, int recurse, int restart)
                     fxp_close_recv(pktin, req);
 
 		    sfree(ournames);
-		    return 0;
+		    return false;
 		}
 		if (names->nnames == 0) {
 		    fxp_free_names(names);
@@ -323,12 +352,13 @@ int sftp_get_file(char *fname, char *outfname, int recurse, int restart)
             if (restart) {
                 while (i < nnames) {
                     char *nextoutfname;
-                    int ret;
+                    bool nonexistent;
                     nextoutfname = dir_file_cat(outfname,
                                                 ournames[i]->filename);
-                    ret = (file_type(nextoutfname) == FILE_TYPE_NONEXISTENT);
+                    nonexistent = (file_type(nextoutfname) ==
+                                   FILE_TYPE_NONEXISTENT);
                     sfree(nextoutfname);
-                    if (ret)
+                    if (nonexistent)
                         break;
                     i++;
                 }
@@ -344,20 +374,21 @@ int sftp_get_file(char *fname, char *outfname, int recurse, int restart)
 	     */
 	    for (; i < nnames; i++) {
 		char *nextfname, *nextoutfname;
-		int ret;
+		bool retd;
 		
 		nextfname = dupcat(fname, "/", ournames[i]->filename, NULL);
                 nextoutfname = dir_file_cat(outfname, ournames[i]->filename);
-		ret = sftp_get_file(nextfname, nextoutfname, recurse, restart);
-		restart = FALSE;       /* after first partial file, do full */
+		retd = sftp_get_file(
+                    nextfname, nextoutfname, recurse, restart);
+		restart = false;       /* after first partial file, do full */
 		sfree(nextoutfname);
 		sfree(nextfname);
-		if (!ret) {
+		if (!retd) {
 		    for (i = 0; i < nnames; i++) {
 			fxp_free_name(ournames[i]);
 		    }
 		    sfree(ournames);
-		    return 0;
+		    return false;
 		}
 	    }
 
@@ -369,7 +400,7 @@ int sftp_get_file(char *fname, char *outfname, int recurse, int restart)
 	    }
 	    sfree(ournames);
 
-	    return 1;
+	    return true;
 	}
     }
 
@@ -384,13 +415,13 @@ int sftp_get_file(char *fname, char *outfname, int recurse, int restart)
 
     if (!fh) {
 	printf("%s: open for read: %s\n", fname, fxp_error());
-	return 0;
+	return false;
     }
 
     if (restart) {
 	file = open_existing_wfile(outfname, NULL);
     } else {
-	file = open_new_file(outfname, GET_PERMISSIONS(attrs));
+	file = open_new_file(outfname, GET_PERMISSIONS(attrs, -1));
     }
 
     if (!file) {
@@ -400,12 +431,11 @@ int sftp_get_file(char *fname, char *outfname, int recurse, int restart)
         pktin = sftp_wait_for_reply(req);
 	fxp_close_recv(pktin, req);
 
-	return 0;
+	return false;
     }
 
     if (restart) {
-	char decbuf[30];
-	if (seek_file(file, uint64_make(0,0) , FROM_END) == -1) {
+	if (seek_file(file, 0, FROM_END) == -1) {
 	    close_wfile(file);
 	    printf("reget: cannot restart %s - file too large\n",
 		   outfname);
@@ -413,14 +443,13 @@ int sftp_get_file(char *fname, char *outfname, int recurse, int restart)
             pktin = sftp_wait_for_reply(req);
 	    fxp_close_recv(pktin, req);
 		
-	    return 0;
+	    return false;
 	}
 	    
 	offset = get_file_posn(file);
-	uint64_decimal(offset, decbuf);
-	printf("reget: restarting at file position %s\n", decbuf);
+	printf("reget: restarting at file position %"PRIu64"\n", offset);
     } else {
-	offset = uint64_make(0, 0);
+	offset = 0;
     }
 
     printf("remote:%s => local:%s\n", fname, outfname);
@@ -429,24 +458,24 @@ int sftp_get_file(char *fname, char *outfname, int recurse, int restart)
      * FIXME: we can use FXP_FSTAT here to get the file size, and
      * thus put up a progress bar.
      */
-    ret = 1;
+    toret = true;
     xfer = xfer_download_init(fh, offset);
     while (!xfer_done(xfer)) {
 	void *vbuf;
-	int len;
+	int retd, len;
 	int wpos, wlen;
 
 	xfer_download_queue(xfer);
 	pktin = sftp_recv();
-	ret = xfer_download_gotpkt(xfer, pktin);
-	if (ret <= 0) {
+	retd = xfer_download_gotpkt(xfer, pktin);
+	if (retd <= 0) {
 	    if (!shown_err) {
 		printf("error while reading: %s\n", fxp_error());
-		shown_err = TRUE;
+		shown_err = true;
 	    }
-            if (ret == INT_MIN)        /* pktin not even freed */
+            if (retd == INT_MIN)        /* pktin not even freed */
                 sfree(pktin);
-            ret = 0;
+            toret = false;
 	}
 
 	while (xfer_download_data(xfer, &vbuf, &len)) {
@@ -457,14 +486,14 @@ int sftp_get_file(char *fname, char *outfname, int recurse, int restart)
 		wlen = write_to_file(file, buf + wpos, len - wpos);
 		if (wlen <= 0) {
 		    printf("error while writing local file\n");
-		    ret = 0;
+		    toret = false;
 		    xfer_set_error(xfer);
 		    break;
 		}
 		wpos += wlen;
 	    }
 	    if (wpos < len) {	       /* we had an error */
-		ret = 0;
+		toret = false;
 		xfer_set_error(xfer);
 	    }
 
@@ -480,18 +509,18 @@ int sftp_get_file(char *fname, char *outfname, int recurse, int restart)
     pktin = sftp_wait_for_reply(req);
     fxp_close_recv(pktin, req);
 
-    return ret;
+    return toret;
 }
 
-int sftp_put_file(char *fname, char *outfname, int recurse, int restart)
+bool sftp_put_file(char *fname, char *outfname, bool recurse, bool restart)
 {
     struct fxp_handle *fh;
     struct fxp_xfer *xfer;
     struct sftp_packet *pktin;
     struct sftp_request *req;
-    uint64 offset;
+    uint64_t offset;
     RFile *file;
-    int err = 0, eof;
+    bool err = false, eof;
     struct fxp_attrs attrs;
     long permissions;
 
@@ -501,7 +530,7 @@ int sftp_put_file(char *fname, char *outfname, int recurse, int restart)
      * subsequent fopen will return an error message.)
      */
     if (recurse && file_type(fname) == FILE_TYPE_DIRECTORY) {
-	int result;
+	bool result;
 	int nnames, namesize;
 	char *name, **ournames;
 	DirHandle *dh;
@@ -517,14 +546,14 @@ int sftp_put_file(char *fname, char *outfname, int recurse, int restart)
 	if (!result ||
 	    !(attrs.flags & SSH_FILEXFER_ATTR_PERMISSIONS) ||
 	    !(attrs.permissions & 0040000)) {
-	    req = fxp_mkdir_send(outfname);
+	    req = fxp_mkdir_send(outfname, NULL);
             pktin = sftp_wait_for_reply(req);
 	    result = fxp_mkdir_recv(pktin, req);
 
 	    if (!result) {
 		printf("%s: create directory: %s\n",
 		       outfname, fxp_error());
-		return 0;
+		return false;
 	    }
 	}
 
@@ -537,7 +566,7 @@ int sftp_put_file(char *fname, char *outfname, int recurse, int restart)
 	dh = open_directory(fname);
 	if (!dh) {
 	    printf("%s: unable to open directory\n", fname);
-	    return 0;
+	    return false;
 	}
 	while ((name = read_filename(dh)) != NULL) {
 	    if (nnames >= namesize) {
@@ -590,20 +619,20 @@ int sftp_put_file(char *fname, char *outfname, int recurse, int restart)
 	 */
 	for (; i < nnames; i++) {
 	    char *nextfname, *nextoutfname;
-	    int ret;
+            bool retd;
 
             nextfname = dir_file_cat(fname, ournames[i]);
 	    nextoutfname = dupcat(outfname, "/", ournames[i], NULL);
-	    ret = sftp_put_file(nextfname, nextoutfname, recurse, restart);
-	    restart = FALSE;	       /* after first partial file, do full */
+	    retd = sftp_put_file(nextfname, nextoutfname, recurse, restart);
+	    restart = false;	       /* after first partial file, do full */
 	    sfree(nextoutfname);
 	    sfree(nextfname);
-	    if (!ret) {
+	    if (!retd) {
 		for (i = 0; i < nnames; i++) {
 		    sfree(ournames[i]);
 		}
 		sfree(ournames);
-		return 0;
+		return false;
 	    }
 	}
 
@@ -615,13 +644,13 @@ int sftp_put_file(char *fname, char *outfname, int recurse, int restart)
 	}
 	sfree(ournames);
 
-	return 1;
+	return true;
     }
 
     file = open_existing_file(fname, NULL, NULL, NULL, &permissions);
     if (!file) {
 	printf("local: unable to open %s\n", fname);
-	return 0;
+	return false;
     }
     attrs.flags = 0;
     PUT_PERMISSIONS(attrs, permissions);
@@ -638,36 +667,34 @@ int sftp_put_file(char *fname, char *outfname, int recurse, int restart)
     if (!fh) {
 	close_rfile(file);
 	printf("%s: open for write: %s\n", outfname, fxp_error());
-	return 0;
+	return false;
     }
 
     if (restart) {
-	char decbuf[30];
 	struct fxp_attrs attrs;
-        int ret;
+        bool retd;
 
 	req = fxp_fstat_send(fh);
         pktin = sftp_wait_for_reply(req);
-	ret = fxp_fstat_recv(pktin, req, &attrs);
+	retd = fxp_fstat_recv(pktin, req, &attrs);
 
-	if (!ret) {
+	if (!retd) {
 	    printf("read size of %s: %s\n", outfname, fxp_error());
-	    err = 1;
+	    err = true;
             goto cleanup;
 	}
 	if (!(attrs.flags & SSH_FILEXFER_ATTR_SIZE)) {
 	    printf("read size of %s: size was not given\n", outfname);
-	    err = 1;
+	    err = true;
             goto cleanup;
 	}
 	offset = attrs.size;
-	uint64_decimal(offset, decbuf);
-	printf("reput: restarting at file position %s\n", decbuf);
+	printf("reput: restarting at file position %"PRIu64"\n", offset);
 
 	if (seek_file((WFile *)file, offset, FROM_START) != 0)
-	    seek_file((WFile *)file, uint64_make(0,0), FROM_END);    /* *shrug* */
+	    seek_file((WFile *)file, 0, FROM_END);    /* *shrug* */
     } else {
-	offset = uint64_make(0, 0);
+        offset = 0;
     }
 
     printf("local:%s => remote:%s\n", fname, outfname);
@@ -677,7 +704,7 @@ int sftp_put_file(char *fname, char *outfname, int recurse, int restart)
      * thus put up a progress bar.
      */
     xfer = xfer_upload_init(fh, offset);
-    eof = 0;
+    eof = false;
     while ((!err && !eof) || !xfer_done(xfer)) {
 	char buffer[4096];
 	int len, ret;
@@ -686,9 +713,9 @@ int sftp_put_file(char *fname, char *outfname, int recurse, int restart)
 	    len = read_from_file(file, buffer, sizeof(buffer));
 	    if (len == -1) {
 		printf("error while reading local file\n");
-		err = 1;
+		err = true;
 	    } else if (len == 0) {
-		eof = 1;
+		eof = true;
 	    } else {
 		xfer_upload_data(xfer, buffer, len);
 	    }
@@ -702,7 +729,7 @@ int sftp_put_file(char *fname, char *outfname, int recurse, int restart)
                     sfree(pktin);
                 if (!err) {
                     printf("error while writing: %s\n", fxp_error());
-                    err = 1;
+                    err = true;
                 }
 	    }
 	}
@@ -716,13 +743,13 @@ int sftp_put_file(char *fname, char *outfname, int recurse, int restart)
     if (!fxp_close_recv(pktin, req)) {
 	if (!err) {
 	    printf("error while closing: %s", fxp_error());
-	    err = 1;
+	    err = true;
 	}
     }
 
     close_rfile(file);
 
-    return (err == 0) ? 1 : 0;
+    return !err;
 }
 
 /* ----------------------------------------------------------------------
@@ -743,7 +770,8 @@ SftpWildcardMatcher *sftp_begin_wildcard_matching(char *name)
     struct sftp_request *req;
     char *wildcard;
     char *unwcdir, *tmpdir, *cdir;
-    int len, check;
+    int len;
+    bool check;
     SftpWildcardMatcher *swcm;
     struct fxp_handle *dirh;
 
@@ -752,7 +780,7 @@ SftpWildcardMatcher *sftp_begin_wildcard_matching(char *name)
      * a fully specified directory part, followed by a wildcard
      * after that.
      */
-    wildcard = stripslashes(name, 0);
+    wildcard = stripslashes(name, false);
 
     unwcdir = dupstr(name);
     len = wildcard - name;
@@ -879,33 +907,34 @@ void sftp_finish_wildcard_matching(SftpWildcardMatcher *swcm)
  * argument and iterate over every matching file. Used in several
  * PSFTP commands (rmdir, rm, chmod, mv).
  */
-int wildcard_iterate(char *filename, int (*func)(void *, char *), void *ctx)
+bool wildcard_iterate(char *filename, bool (*func)(void *, char *), void *ctx)
 {
     char *unwcfname, *newname, *cname;
-    int is_wc, ret;
+    bool is_wc, toret;
 
     unwcfname = snewn(strlen(filename)+1, char);
     is_wc = !wc_unescape(unwcfname, filename);
 
     if (is_wc) {
 	SftpWildcardMatcher *swcm = sftp_begin_wildcard_matching(filename);
-	int matched = FALSE;
+	bool matched = false;
 	sfree(unwcfname);
 
 	if (!swcm)
-	    return 0;
+	    return false;
 
-	ret = 1;
+	toret = true;
 
 	while ( (newname = sftp_wildcard_get_filename(swcm)) != NULL ) {
 	    cname = canonify(newname);
 	    if (!cname) {
 		printf("%s: canonify: %s\n", newname, fxp_error());
-		ret = 0;
+		toret = false;
 	    }
             sfree(newname);
-	    matched = TRUE;
-	    ret &= func(ctx, cname);
+	    matched = true;
+            if (!func(ctx, cname))
+                toret = false;
 	    sfree(cname);
 	}
 
@@ -919,23 +948,23 @@ int wildcard_iterate(char *filename, int (*func)(void *, char *), void *ctx)
 	cname = canonify(unwcfname);
 	if (!cname) {
 	    printf("%s: canonify: %s\n", filename, fxp_error());
-	    ret = 0;
+	    toret = false;
 	}
-	ret = func(ctx, cname);
+	toret = func(ctx, cname);
 	sfree(cname);
 	sfree(unwcfname);
     }
 
-    return ret;
+    return toret;
 }
 
 /*
  * Handy helper function.
  */
-int is_wildcard(char *name)
+bool is_wildcard(char *name)
 {
     char *unwcfname = snewn(strlen(name)+1, char);
-    int is_wc = !wc_unescape(unwcfname, name);
+    bool is_wc = !wc_unescape(unwcfname, name);
     sfree(unwcfname);
     return is_wc;
 }
@@ -967,15 +996,15 @@ int sftp_cmd_quit(struct sftp_command *cmd)
 
 int sftp_cmd_close(struct sftp_command *cmd)
 {
-    if (back == NULL) {
+    if (!backend) {
 	not_connected();
 	return 0;
     }
 
-    if (back != NULL && back->connected(backhandle)) {
+    if (backend_connected(backend)) {
 	char ch;
-	back->special(backhandle, TS_EOF);
-        sent_eof = TRUE;
+        backend_special(backend, SS_EOF, 0);
+        sent_eof = true;
 	sftp_recvdata(&ch, 1);
     }
     do_sftp_cleanup();
@@ -999,7 +1028,7 @@ int sftp_cmd_ls(struct sftp_command *cmd)
     struct sftp_request *req;
     int i;
 
-    if (back == NULL) {
+    if (!backend) {
 	not_connected();
 	return 0;
     }
@@ -1015,10 +1044,11 @@ int sftp_cmd_ls(struct sftp_command *cmd)
 	wildcard = NULL;
     } else {
 	char *tmpdir;
-	int len, check;
+	int len;
+        bool check;
 
         sfree(unwcdir);
-	wildcard = stripslashes(dir, 0);
+	wildcard = stripslashes(dir, false);
 	unwcdir = dupstr(dir);
 	len = wildcard - dir;
 	unwcdir[len] = '\0';
@@ -1050,6 +1080,8 @@ int sftp_cmd_ls(struct sftp_command *cmd)
 
     if (dirh == NULL) {
 	printf("Unable to open %s: %s\n", dir, fxp_error());
+	sfree(cdir);
+	sfree(unwcdir);
 	return 0;
     } else {
 	nnames = namesize = 0;
@@ -1121,19 +1153,19 @@ int sftp_cmd_cd(struct sftp_command *cmd)
     struct sftp_request *req;
     char *dir;
 
-    if (back == NULL) {
+    if (!backend) {
 	not_connected();
 	return 0;
     }
 
     if (cmd->nwords < 2)
 	dir = dupstr(homedir);
-    else
+    else {
 	dir = canonify(cmd->words[1]);
-
-    if (!dir) {
-	printf("%s: canonify: %s\n", dir, fxp_error());
-	return 0;
+        if (!dir) {
+            printf("%s: canonify: %s\n", cmd->words[1], fxp_error());
+            return 0;
+        }
     }
 
     req = fxp_opendir_send(dir);
@@ -1162,7 +1194,7 @@ int sftp_cmd_cd(struct sftp_command *cmd)
  */
 int sftp_cmd_pwd(struct sftp_command *cmd)
 {
-    if (back == NULL) {
+    if (!backend) {
 	not_connected();
 	return 0;
     }
@@ -1180,13 +1212,13 @@ int sftp_cmd_pwd(struct sftp_command *cmd)
  * transfer (never as a different local name for a remote file) and
  * can handle wildcards.
  */
-int sftp_general_get(struct sftp_command *cmd, int restart, int multiple)
+int sftp_general_get(struct sftp_command *cmd, bool restart, bool multiple)
 {
     char *fname, *unwcfname, *origfname, *origwfname, *outfname;
-    int i, ret;
-    int recurse = FALSE;
+    int i, toret;
+    bool recurse = false;
 
-    if (back == NULL) {
+    if (!backend) {
 	not_connected();
 	return 0;
     }
@@ -1198,7 +1230,7 @@ int sftp_general_get(struct sftp_command *cmd, int restart, int multiple)
 	    i++;
 	    break;
 	} else if (!strcmp(cmd->words[i], "-r")) {
-	    recurse = TRUE;
+	    recurse = true;
 	} else {
 	    printf("%s: unrecognised option '%s'\n", cmd->words[0], cmd->words[i]);
 	    return 0;
@@ -1211,7 +1243,7 @@ int sftp_general_get(struct sftp_command *cmd, int restart, int multiple)
 	return 0;
     }
 
-    ret = 1;
+    toret = 1;
     do {
 	SftpWildcardMatcher *swcm;
 
@@ -1251,9 +1283,9 @@ int sftp_general_get(struct sftp_command *cmd, int restart, int multiple)
 	    if (!multiple && i < cmd->nwords)
 		outfname = cmd->words[i++];
 	    else
-		outfname = stripslashes(origwfname, 0);
+		outfname = stripslashes(origwfname, false);
 
-	    ret = sftp_get_file(fname, outfname, recurse, restart);
+	    toret = sftp_get_file(fname, outfname, recurse, restart);
 
 	    sfree(fname);
 
@@ -1267,24 +1299,24 @@ int sftp_general_get(struct sftp_command *cmd, int restart, int multiple)
 	sfree(unwcfname);
 	if (swcm)
 	    sftp_finish_wildcard_matching(swcm);
-	if (!ret)
-	    return ret;
+	if (!toret)
+	    return toret;
 
     } while (multiple && i < cmd->nwords);
 
-    return ret;
+    return toret;
 }
 int sftp_cmd_get(struct sftp_command *cmd)
 {
-    return sftp_general_get(cmd, 0, 0);
+    return sftp_general_get(cmd, false, false);
 }
 int sftp_cmd_mget(struct sftp_command *cmd)
 {
-    return sftp_general_get(cmd, 0, 1);
+    return sftp_general_get(cmd, false, true);
 }
 int sftp_cmd_reget(struct sftp_command *cmd)
 {
-    return sftp_general_get(cmd, 1, 0);
+    return sftp_general_get(cmd, true, false);
 }
 
 /*
@@ -1296,13 +1328,14 @@ int sftp_cmd_reget(struct sftp_command *cmd)
  * transfer (never as a different remote name for a local file) and
  * can handle wildcards.
  */
-int sftp_general_put(struct sftp_command *cmd, int restart, int multiple)
+int sftp_general_put(struct sftp_command *cmd, bool restart, bool multiple)
 {
     char *fname, *wfname, *origoutfname, *outfname;
-    int i, ret;
-    int recurse = FALSE;
+    int i;
+    int toret;
+    bool recurse = false;
 
-    if (back == NULL) {
+    if (!backend) {
 	not_connected();
 	return 0;
     }
@@ -1314,7 +1347,7 @@ int sftp_general_put(struct sftp_command *cmd, int restart, int multiple)
 	    i++;
 	    break;
 	} else if (!strcmp(cmd->words[i], "-r")) {
-	    recurse = TRUE;
+	    recurse = true;
 	} else {
 	    printf("%s: unrecognised option '%s'\n", cmd->words[0], cmd->words[i]);
 	    return 0;
@@ -1327,12 +1360,12 @@ int sftp_general_put(struct sftp_command *cmd, int restart, int multiple)
 	return 0;
     }
 
-    ret = 1;
+    toret = 1;
     do {
 	WildcardMatcher *wcm;
 	fname = cmd->words[i++];
 
-	if (multiple && test_wildcard(fname, FALSE) == WCTYPE_WILDCARD) {
+	if (multiple && test_wildcard(fname, false) == WCTYPE_WILDCARD) {
 	    wcm = begin_wildcard_matching(fname);
 	    wfname = wildcard_get_filename(wcm);
 	    if (!wfname) {
@@ -1350,7 +1383,7 @@ int sftp_general_put(struct sftp_command *cmd, int restart, int multiple)
 	    if (!multiple && i < cmd->nwords)
 		origoutfname = cmd->words[i++];
 	    else
-		origoutfname = stripslashes(wfname, 1);
+		origoutfname = stripslashes(wfname, true);
 
 	    outfname = canonify(origoutfname);
 	    if (!outfname) {
@@ -1361,7 +1394,7 @@ int sftp_general_put(struct sftp_command *cmd, int restart, int multiple)
 		}
 		return 0;
 	    }
-	    ret = sftp_put_file(wfname, outfname, recurse, restart);
+	    toret = sftp_put_file(wfname, outfname, recurse, restart);
 	    sfree(outfname);
 
 	    if (wcm) {
@@ -1375,24 +1408,24 @@ int sftp_general_put(struct sftp_command *cmd, int restart, int multiple)
 	if (wcm)
 	    finish_wildcard_matching(wcm);
 
-	if (!ret)
-	    return ret;
+	if (!toret)
+	    return toret;
 
     } while (multiple && i < cmd->nwords);
 
-    return ret;
+    return toret;
 }
 int sftp_cmd_put(struct sftp_command *cmd)
 {
-    return sftp_general_put(cmd, 0, 0);
+    return sftp_general_put(cmd, false, false);
 }
 int sftp_cmd_mput(struct sftp_command *cmd)
 {
-    return sftp_general_put(cmd, 0, 1);
+    return sftp_general_put(cmd, false, true);
 }
 int sftp_cmd_reput(struct sftp_command *cmd)
 {
-    return sftp_general_put(cmd, 1, 0);
+    return sftp_general_put(cmd, true, false);
 }
 
 int sftp_cmd_mkdir(struct sftp_command *cmd)
@@ -1400,10 +1433,10 @@ int sftp_cmd_mkdir(struct sftp_command *cmd)
     char *dir;
     struct sftp_packet *pktin;
     struct sftp_request *req;
-    int result;
+    bool result;
     int i, ret;
 
-    if (back == NULL) {
+    if (!backend) {
 	not_connected();
 	return 0;
     }
@@ -1417,11 +1450,11 @@ int sftp_cmd_mkdir(struct sftp_command *cmd)
     for (i = 1; i < cmd->nwords; i++) {
 	dir = canonify(cmd->words[i]);
 	if (!dir) {
-	    printf("%s: canonify: %s\n", dir, fxp_error());
+	    printf("%s: canonify: %s\n", cmd->words[i], fxp_error());
 	    return 0;
 	}
 
-	req = fxp_mkdir_send(dir);
+	req = fxp_mkdir_send(dir, NULL);
         pktin = sftp_wait_for_reply(req);
 	result = fxp_mkdir_recv(pktin, req);
 
@@ -1437,11 +1470,11 @@ int sftp_cmd_mkdir(struct sftp_command *cmd)
     return ret;
 }
 
-static int sftp_action_rmdir(void *vctx, char *dir)
+static bool sftp_action_rmdir(void *vctx, char *dir)
 {
     struct sftp_packet *pktin;
     struct sftp_request *req;
-    int result;
+    bool result;
 
     req = fxp_rmdir_send(dir);
     pktin = sftp_wait_for_reply(req);
@@ -1449,19 +1482,19 @@ static int sftp_action_rmdir(void *vctx, char *dir)
 
     if (!result) {
 	printf("rmdir %s: %s\n", dir, fxp_error());
-	return 0;
+	return false;
     }
 
     printf("rmdir %s: OK\n", dir);
 
-    return 1;
+    return true;
 }
 
 int sftp_cmd_rmdir(struct sftp_command *cmd)
 {
     int i, ret;
 
-    if (back == NULL) {
+    if (!backend) {
 	not_connected();
 	return 0;
     }
@@ -1478,11 +1511,11 @@ int sftp_cmd_rmdir(struct sftp_command *cmd)
     return ret;
 }
 
-static int sftp_action_rm(void *vctx, char *fname)
+static bool sftp_action_rm(void *vctx, char *fname)
 {
     struct sftp_packet *pktin;
     struct sftp_request *req;
-    int result;
+    bool result;
 
     req = fxp_remove_send(fname);
     pktin = sftp_wait_for_reply(req);
@@ -1490,19 +1523,19 @@ static int sftp_action_rm(void *vctx, char *fname)
 
     if (!result) {
 	printf("rm %s: %s\n", fname, fxp_error());
-	return 0;
+	return false;
     }
 
     printf("rm %s: OK\n", fname);
 
-    return 1;
+    return true;
 }
 
 int sftp_cmd_rm(struct sftp_command *cmd)
 {
     int i, ret;
 
-    if (back == NULL) {
+    if (!backend) {
 	not_connected();
 	return 0;
     }
@@ -1519,12 +1552,12 @@ int sftp_cmd_rm(struct sftp_command *cmd)
     return ret;
 }
 
-static int check_is_dir(char *dstfname)
+static bool check_is_dir(char *dstfname)
 {
     struct sftp_packet *pktin;
     struct sftp_request *req;
     struct fxp_attrs attrs;
-    int result;
+    bool result;
 
     req = fxp_stat_send(dstfname);
     pktin = sftp_wait_for_reply(req);
@@ -1533,24 +1566,24 @@ static int check_is_dir(char *dstfname)
     if (result &&
 	(attrs.flags & SSH_FILEXFER_ATTR_PERMISSIONS) &&
 	(attrs.permissions & 0040000))
-	return TRUE;
+	return true;
     else
-	return FALSE;
+	return false;
 }
 
 struct sftp_context_mv {
     char *dstfname;
-    int dest_is_dir;
+    bool dest_is_dir;
 };
 
-static int sftp_action_mv(void *vctx, char *srcfname)
+static bool sftp_action_mv(void *vctx, char *srcfname)
 {
     struct sftp_context_mv *ctx = (struct sftp_context_mv *)vctx;
     struct sftp_packet *pktin;
     struct sftp_request *req;
     const char *error;
     char *finalfname, *newcanon = NULL;
-    int ret, result;
+    bool toret, result;
 
     if (ctx->dest_is_dir) {
 	char *p;
@@ -1563,7 +1596,7 @@ static int sftp_action_mv(void *vctx, char *srcfname)
 	if (!newcanon) {
 	    printf("%s: canonify: %s\n", newname, fxp_error());
 	    sfree(newname);
-	    return 0;
+	    return false;
 	}
 	sfree(newname);
 
@@ -1580,14 +1613,14 @@ static int sftp_action_mv(void *vctx, char *srcfname)
 
     if (error) {
 	printf("mv %s %s: %s\n", srcfname, finalfname, error);
-	ret = 0;
+	toret = false;
     } else {
 	printf("%s -> %s\n", srcfname, finalfname);
-	ret = 1;
+	toret = true;
     }
 
     sfree(newcanon);
-    return ret;
+    return toret;
 }
 
 int sftp_cmd_mv(struct sftp_command *cmd)
@@ -1595,7 +1628,7 @@ int sftp_cmd_mv(struct sftp_command *cmd)
     struct sftp_context_mv actx, *ctx = &actx;
     int i, ret;
 
-    if (back == NULL) {
+    if (!backend) {
 	not_connected();
 	return 0;
     }
@@ -1639,12 +1672,12 @@ struct sftp_context_chmod {
     unsigned attrs_clr, attrs_xor;
 };
 
-static int sftp_action_chmod(void *vctx, char *fname)
+static bool sftp_action_chmod(void *vctx, char *fname)
 {
     struct fxp_attrs attrs;
     struct sftp_packet *pktin;
     struct sftp_request *req;
-    int result;
+    bool result;
     unsigned oldperms, newperms;
     struct sftp_context_chmod *ctx = (struct sftp_context_chmod *)vctx;
 
@@ -1655,7 +1688,7 @@ static int sftp_action_chmod(void *vctx, char *fname)
     if (!result || !(attrs.flags & SSH_FILEXFER_ATTR_PERMISSIONS)) {
 	printf("get attrs for %s: %s\n", fname,
 	       result ? "file permissions not provided" : fxp_error());
-	return 0;
+	return false;
     }
 
     attrs.flags = SSH_FILEXFER_ATTR_PERMISSIONS;   /* perms _only_ */
@@ -1665,7 +1698,7 @@ static int sftp_action_chmod(void *vctx, char *fname)
     newperms = attrs.permissions & 07777;
 
     if (oldperms == newperms)
-	return 1;		       /* no need to do anything! */
+	return true;                   /* no need to do anything! */
 
     req = fxp_setstat_send(fname, attrs);
     pktin = sftp_wait_for_reply(req);
@@ -1673,12 +1706,12 @@ static int sftp_action_chmod(void *vctx, char *fname)
 
     if (!result) {
 	printf("set attrs for %s: %s\n", fname, fxp_error());
-	return 0;
+	return false;
     }
 
     printf("%s: %04o -> %04o\n", fname, oldperms, newperms);
 
-    return 1;
+    return true;
 }
 
 int sftp_cmd_chmod(struct sftp_command *cmd)
@@ -1687,7 +1720,7 @@ int sftp_cmd_chmod(struct sftp_command *cmd)
     int i, ret;
     struct sftp_context_chmod actx, *ctx = &actx;
 
-    if (back == NULL) {
+    if (!backend) {
 	not_connected();
 	return 0;
     }
@@ -1813,7 +1846,7 @@ static int sftp_cmd_open(struct sftp_command *cmd)
 {
     int portnumber;
 
-    if (back != NULL) {
+    if (backend) {
 	printf("psftp: already connected\n");
 	return 0;
     }
@@ -1833,7 +1866,7 @@ static int sftp_cmd_open(struct sftp_command *cmd)
 	portnumber = 0;
 
     if (psftp_connect(cmd->words[1], NULL, portnumber)) {
-	back = NULL;		       /* connection is already closed */
+        backend = NULL;                /* connection is already closed */
 	return -1;		       /* this is fatal */
     }
     do_sftp_init();
@@ -1898,7 +1931,7 @@ static struct sftp_cmd_lookup {
      *    `shorthelp' is the name of a primary command, which
      *    contains the help that should double up for this command.
      */
-    int listed;			       /* do we list this in primary help? */
+    bool listed;                /* do we list this in primary help? */
     const char *shorthelp;
     const char *longhelp;
     int (*obey) (struct sftp_command *);
@@ -1908,20 +1941,20 @@ static struct sftp_cmd_lookup {
      * in ASCII order.
      */
     {
-	"!", TRUE, "run a local command",
+	"!", true, "run a local command",
 	    "<command>\n"
 	    /* FIXME: this example is crap for non-Windows. */
 	    "  Runs a local command. For example, \"!del myfile\".\n",
 	    sftp_cmd_pling
     },
     {
-	"bye", TRUE, "finish your SFTP session",
+	"bye", true, "finish your SFTP session",
 	    "\n"
 	    "  Terminates your SFTP session and quits the PSFTP program.\n",
 	    sftp_cmd_quit
     },
     {
-	"cd", TRUE, "change your remote working directory",
+	"cd", true, "change your remote working directory",
 	    " [ <new working directory> ]\n"
 	    "  Change the remote working directory for your SFTP session.\n"
 	    "  If a new working directory is not supplied, you will be\n"
@@ -1929,7 +1962,7 @@ static struct sftp_cmd_lookup {
 	    sftp_cmd_cd
     },
     {
-	"chmod", TRUE, "change file permissions and modes",
+	"chmod", true, "change file permissions and modes",
 	    " <modes> <filename-or-wildcard> [ <filename-or-wildcard>... ]\n"
 	    "  Change the file permissions on one or more remote files or\n"
 	    "  directories.\n"
@@ -1957,7 +1990,7 @@ static struct sftp_cmd_lookup {
 	    sftp_cmd_chmod
     },
     {
-	"close", TRUE, "finish your SFTP session but do not quit PSFTP",
+	"close", true, "finish your SFTP session but do not quit PSFTP",
 	    "\n"
 	    "  Terminates your SFTP session, but does not quit the PSFTP\n"
 	    "  program. You can then use \"open\" to start another SFTP\n"
@@ -1965,16 +1998,16 @@ static struct sftp_cmd_lookup {
 	    sftp_cmd_close
     },
     {
-	"del", TRUE, "delete files on the remote server",
+	"del", true, "delete files on the remote server",
 	    " <filename-or-wildcard> [ <filename-or-wildcard>... ]\n"
 	    "  Delete a file or files from the server.\n",
 	    sftp_cmd_rm
     },
     {
-	"delete", FALSE, "del", NULL, sftp_cmd_rm
+	"delete", false, "del", NULL, sftp_cmd_rm
     },
     {
-	"dir", TRUE, "list remote files",
+	"dir", true, "list remote files",
 	    " [ <directory-name> ]/[ <wildcard> ]\n"
 	    "  List the contents of a specified directory on the server.\n"
 	    "  If <directory-name> is not given, the current working directory\n"
@@ -1984,10 +2017,10 @@ static struct sftp_cmd_lookup {
 	    sftp_cmd_ls
     },
     {
-	"exit", TRUE, "bye", NULL, sftp_cmd_quit
+	"exit", true, "bye", NULL, sftp_cmd_quit
     },
     {
-	"get", TRUE, "download a file from the server to your local machine",
+	"get", true, "download a file from the server to your local machine",
 	    " [ -r ] [ -- ] <filename> [ <local-filename> ]\n"
 	    "  Downloads a file on the server and stores it locally under\n"
 	    "  the same name, or under a different one if you supply the\n"
@@ -1996,7 +2029,7 @@ static struct sftp_cmd_lookup {
 	    sftp_cmd_get
     },
     {
-	"help", TRUE, "give help",
+	"help", true, "give help",
 	    " [ <command> [ <command> ... ] ]\n"
 	    "  Give general help if no commands are specified.\n"
 	    "  If one or more commands are specified, give specific help on\n"
@@ -2004,25 +2037,25 @@ static struct sftp_cmd_lookup {
 	    sftp_cmd_help
     },
     {
-	"lcd", TRUE, "change local working directory",
+	"lcd", true, "change local working directory",
 	    " <local-directory-name>\n"
 	    "  Change the local working directory of the PSFTP program (the\n"
 	    "  default location where the \"get\" command will save files).\n",
 	    sftp_cmd_lcd
     },
     {
-	"lpwd", TRUE, "print local working directory",
+	"lpwd", true, "print local working directory",
 	    "\n"
 	    "  Print the local working directory of the PSFTP program (the\n"
 	    "  default location where the \"get\" command will save files).\n",
 	    sftp_cmd_lpwd
     },
     {
-	"ls", TRUE, "dir", NULL,
+	"ls", true, "dir", NULL,
 	    sftp_cmd_ls
     },
     {
-	"mget", TRUE, "download multiple files at once",
+	"mget", true, "download multiple files at once",
 	    " [ -r ] [ -- ] <filename-or-wildcard> [ <filename-or-wildcard>... ]\n"
 	    "  Downloads many files from the server, storing each one under\n"
 	    "  the same name it has on the server side. You can use wildcards\n"
@@ -2031,13 +2064,13 @@ static struct sftp_cmd_lookup {
 	    sftp_cmd_mget
     },
     {
-	"mkdir", TRUE, "create directories on the remote server",
+	"mkdir", true, "create directories on the remote server",
 	    " <directory-name> [ <directory-name>... ]\n"
 	    "  Creates directories with the given names on the server.\n",
 	    sftp_cmd_mkdir
     },
     {
-	"mput", TRUE, "upload multiple files at once",
+	"mput", true, "upload multiple files at once",
 	    " [ -r ] [ -- ] <filename-or-wildcard> [ <filename-or-wildcard>... ]\n"
 	    "  Uploads many files to the server, storing each one under the\n"
 	    "  same name it has on the client side. You can use wildcards\n"
@@ -2046,7 +2079,7 @@ static struct sftp_cmd_lookup {
 	    sftp_cmd_mput
     },
     {
-	"mv", TRUE, "move or rename file(s) on the remote server",
+	"mv", true, "move or rename file(s) on the remote server",
 	    " <source> [ <source>... ] <destination>\n"
 	    "  Moves or renames <source>(s) on the server to <destination>,\n"
 	    "  also on the server.\n"
@@ -2058,14 +2091,14 @@ static struct sftp_cmd_lookup {
 	    sftp_cmd_mv
     },
     {
-	"open", TRUE, "connect to a host",
+	"open", true, "connect to a host",
 	    " [<user>@]<hostname> [<port>]\n"
 	    "  Establishes an SFTP connection to a given host. Only usable\n"
 	    "  when you are not already connected to a server.\n",
 	    sftp_cmd_open
     },
     {
-	"put", TRUE, "upload a file from your local machine to the server",
+	"put", true, "upload a file from your local machine to the server",
 	    " [ -r ] [ -- ] <filename> [ <remote-filename> ]\n"
 	    "  Uploads a file to the server and stores it there under\n"
 	    "  the same name, or under a different one if you supply the\n"
@@ -2074,17 +2107,17 @@ static struct sftp_cmd_lookup {
 	    sftp_cmd_put
     },
     {
-	"pwd", TRUE, "print your remote working directory",
+	"pwd", true, "print your remote working directory",
 	    "\n"
 	    "  Print the current remote working directory for your SFTP session.\n",
 	    sftp_cmd_pwd
     },
     {
-	"quit", TRUE, "bye", NULL,
+	"quit", true, "bye", NULL,
 	    sftp_cmd_quit
     },
     {
-	"reget", TRUE, "continue downloading files",
+	"reget", true, "continue downloading files",
 	    " [ -r ] [ -- ] <filename> [ <local-filename> ]\n"
 	    "  Works exactly like the \"get\" command, but the local file\n"
 	    "  must already exist. The download will begin at the end of the\n"
@@ -2093,15 +2126,15 @@ static struct sftp_cmd_lookup {
 	    sftp_cmd_reget
     },
     {
-	"ren", TRUE, "mv", NULL,
+	"ren", true, "mv", NULL,
 	    sftp_cmd_mv
     },
     {
-	"rename", FALSE, "mv", NULL,
+	"rename", false, "mv", NULL,
 	    sftp_cmd_mv
     },
     {
-	"reput", TRUE, "continue uploading files",
+	"reput", true, "continue uploading files",
 	    " [ -r ] [ -- ] <filename> [ <remote-filename> ]\n"
 	    "  Works exactly like the \"put\" command, but the remote file\n"
 	    "  must already exist. The upload will begin at the end of the\n"
@@ -2110,11 +2143,11 @@ static struct sftp_cmd_lookup {
 	    sftp_cmd_reput
     },
     {
-	"rm", TRUE, "del", NULL,
+	"rm", true, "del", NULL,
 	    sftp_cmd_rm
     },
     {
-	"rmdir", TRUE, "remove directories on the remote server",
+	"rmdir", true, "remove directories on the remote server",
 	    " <directory-name> [ <directory-name>... ]\n"
 	    "  Removes the directory with the given name on the server.\n"
 	    "  The directory will not be removed unless it is empty.\n"
@@ -2198,7 +2231,7 @@ struct sftp_command *sftp_getcmd(FILE *fp, int mode, int modeflags)
     char *line;
     struct sftp_command *cmd;
     char *p, *q, *r;
-    int quoting;
+    bool quoting;
 
     cmd = snew(struct sftp_command);
     cmd->words = NULL;
@@ -2212,7 +2245,7 @@ struct sftp_command *sftp_getcmd(FILE *fp, int mode, int modeflags)
 	    printf("psftp> ");
 	line = fgetline(fp);
     } else {
-	line = ssh_sftp_get_cmdline("psftp> ", back == NULL);
+        line = ssh_sftp_get_cmdline("psftp> ", !backend);
     }
 
     if (!line || !*line) {
@@ -2275,7 +2308,7 @@ struct sftp_command *sftp_getcmd(FILE *fp, int mode, int modeflags)
                 break;
 	    /* mark start of word */
 	    q = r = p;		       /* q sits at start, r writes word */
-	    quoting = 0;
+	    quoting = false;
 	    while (*p) {
 		if (!quoting && (*p == ' ' || *p == '\t'))
 		    break;		       /* reached end of word */
@@ -2350,17 +2383,16 @@ static int do_sftp_init(void)
     return 0;
 }
 
-void do_sftp_cleanup()
+static void do_sftp_cleanup(void)
 {
     char ch;
-    if (back) {
-	back->special(backhandle, TS_EOF);
-        sent_eof = TRUE;
+    if (backend) {
+        backend_special(backend, SS_EOF, 0);
+        sent_eof = true;
 	sftp_recvdata(&ch, 1);
-	back->free(backhandle);
+        backend_free(backend);
 	sftp_cleanup_request();
-	back = NULL;
-	backhandle = NULL;
+        backend = NULL;
     }
     if (pwd) {
 	sfree(pwd);
@@ -2435,67 +2467,9 @@ int do_sftp(int mode, int modeflags, char *batchfile)
  * Dirty bits: integration with PuTTY.
  */
 
-static int verbose = 0;
+static bool verbose = false;
 
-/*
- *  Print an error message and perform a fatal exit.
- */
-void fatalbox(const char *fmt, ...)
-{
-    char *str, *str2;
-    va_list ap;
-    va_start(ap, fmt);
-    str = dupvprintf(fmt, ap);
-    str2 = dupcat("Fatal: ", str, "\n", NULL);
-    sfree(str);
-    va_end(ap);
-    fputs(str2, stderr);
-    sfree(str2);
-
-    cleanup_exit(1);
-}
-void modalfatalbox(const char *fmt, ...)
-{
-    char *str, *str2;
-    va_list ap;
-    va_start(ap, fmt);
-    str = dupvprintf(fmt, ap);
-    str2 = dupcat("Fatal: ", str, "\n", NULL);
-    sfree(str);
-    va_end(ap);
-    fputs(str2, stderr);
-    sfree(str2);
-
-    cleanup_exit(1);
-}
-void nonfatal(const char *fmt, ...)
-{
-    char *str, *str2;
-    va_list ap;
-    va_start(ap, fmt);
-    str = dupvprintf(fmt, ap);
-    str2 = dupcat("Error: ", str, "\n", NULL);
-    sfree(str);
-    va_end(ap);
-    fputs(str2, stderr);
-    sfree(str2);
-}
-void connection_fatal(void *frontend, const char *fmt, ...)
-{
-    char *str, *str2;
-    va_list ap;
-    va_start(ap, fmt);
-    str = dupvprintf(fmt, ap);
-    str2 = dupcat("Fatal: ", str, "\n", NULL);
-    sfree(str);
-    va_end(ap);
-    fputs(str2, stderr);
-    sfree(str2);
-
-    cleanup_exit(1);
-}
-
-void ldisc_echoedit_update(void *handle) { }
+void ldisc_echoedit_update(Ldisc *ldisc) { }
 
 /*
  * In psftp, all agent requests should be synchronous, so this is a
@@ -2512,7 +2486,7 @@ void agent_schedule_callback(void (*callback)(void *, void *, int),
  * is available.
  *
  * To do this, we repeatedly call the SSH protocol module, with our
- * own trap in from_backend() to catch the data that comes back. We
+ * own psftp_output() function to catch the data that comes back. We
  * do this until we have enough data.
  */
 
@@ -2520,7 +2494,8 @@ static unsigned char *outptr;	       /* where to put the data */
 static unsigned outlen;		       /* how much data required */
 static unsigned char *pending = NULL;  /* any spare data */
 static unsigned pendlen = 0, pendsize = 0;	/* length and phys. size of buffer */
-int from_backend(void *frontend, int is_stderr, const char *data, int datalen)
+static int psftp_output(Seat *seat, bool is_stderr,
+                        const void *data, int datalen)
 {
     unsigned char *p = (unsigned char *) data;
     unsigned len = (unsigned) datalen;
@@ -2564,16 +2539,8 @@ int from_backend(void *frontend, int is_stderr, const char *data, int datalen)
 
     return 0;
 }
-int from_backend_untrusted(void *frontend_handle, const char *data, int len)
-{
-    /*
-     * No "untrusted" output should get here (the way the code is
-     * currently, it's all diverted by FLAG_STDERR).
-     */
-    assert(!"Unexpected call to from_backend_untrusted()");
-    return 0; /* not reached */
-}
-int from_backend_eof(void *frontend)
+
+static bool psftp_eof(Seat *seat)
 {
     /*
      * We expect to be the party deciding when to close the
@@ -2581,12 +2548,13 @@ int from_backend_eof(void *frontend)
      * should panic.
      */
     if (!sent_eof) {
-        connection_fatal(frontend,
-                         "Received unexpected end-of-file from SFTP server");
+        seat_connection_fatal(
+            psftp_seat, "Received unexpected end-of-file from SFTP server");
     }
-    return FALSE;
+    return false;
 }
-int sftp_recvdata(char *buf, int len)
+
+bool sftp_recvdata(char *buf, int len)
 {
     outptr = (unsigned char *) buf;
     outlen = len;
@@ -2610,24 +2578,24 @@ int sftp_recvdata(char *buf, int len)
 	    pending = NULL;
 	}
 	if (outlen == 0)
-	    return 1;
+	    return true;
     }
 
     while (outlen > 0) {
-	if (back->exitcode(backhandle) >= 0 || ssh_sftp_loop_iteration() < 0)
-	    return 0;		       /* doom */
+        if (backend_exitcode(backend) >= 0 || ssh_sftp_loop_iteration() < 0)
+	    return false;              /* doom */
     }
 
-    return 1;
+    return true;
 }
-int sftp_senddata(char *buf, int len)
+bool sftp_senddata(char *buf, int len)
 {
-    back->send(backhandle, buf, len);
-    return 1;
+    backend_send(backend, buf, len);
+    return true;
 }
 int sftp_sendbuffer(void)
 {
-    return back->sendbuffer(backhandle);
+    return backend_sendbuffer(backend);
 }
 
 /*
@@ -2681,7 +2649,7 @@ static int psftp_connect(char *userhost, char *user, int portnumber)
 {
     char *host, *realhost;
     const char *err;
-    void *logctx;
+    LogContext *logctx;
 
     /* Separate host and username */
     host = userhost;
@@ -2799,9 +2767,9 @@ static int psftp_connect(char *userhost, char *user, int portnumber)
      * things like SCP and SFTP: agent forwarding, port forwarding,
      * X forwarding.
      */
-    conf_set_int(conf, CONF_x11_forward, 0);
-    conf_set_int(conf, CONF_agentfwd, 0);
-    conf_set_int(conf, CONF_ssh_simple, TRUE);
+    conf_set_bool(conf, CONF_x11_forward, false);
+    conf_set_bool(conf, CONF_agentfwd, false);
+    conf_set_bool(conf, CONF_ssh_simple, true);
     {
 	char *key;
 	while ((key = conf_get_str_nthstrkey(conf, CONF_portfwd, 0)) != NULL)
@@ -2810,8 +2778,8 @@ static int psftp_connect(char *userhost, char *user, int portnumber)
 
     /* Set up subsystem name. */
     conf_set_str(conf, CONF_remote_cmd, "sftp");
-    conf_set_int(conf, CONF_ssh_subsys, TRUE);
-    conf_set_int(conf, CONF_nopty, TRUE);
+    conf_set_bool(conf, CONF_ssh_subsys, true);
+    conf_set_bool(conf, CONF_nopty, true);
 
     /*
      * Set up fallback option, for SSH-1 servers or servers with the
@@ -2836,27 +2804,23 @@ static int psftp_connect(char *userhost, char *user, int portnumber)
 		 "test -x /usr/local/lib/sftp-server &&"
 		 " exec /usr/local/lib/sftp-server\n"
 		 "exec sftp-server");
-    conf_set_int(conf, CONF_ssh_subsys2, FALSE);
+    conf_set_bool(conf, CONF_ssh_subsys2, false);
 
-    back = &ssh_backend;
-
-    logctx = log_init(NULL, conf);
-    console_provide_logctx(logctx);
+    logctx = log_init(default_logpolicy, conf);
 
     platform_psftp_pre_conn_setup();
 
-    err = back->init(NULL, &backhandle, conf,
-		     conf_get_str(conf, CONF_host),
-		     conf_get_int(conf, CONF_port),
-		     &realhost, 0,
-		     conf_get_int(conf, CONF_tcp_keepalives));
+    err = backend_init(&ssh_backend, psftp_seat, &backend, logctx, conf,
+                       conf_get_str(conf, CONF_host),
+                       conf_get_int(conf, CONF_port),
+                       &realhost, 0,
+                       conf_get_bool(conf, CONF_tcp_keepalives));
     if (err != NULL) {
 	fprintf(stderr, "ssh_init: %s\n", err);
 	return 1;
     }
-    back->provide_logctx(backhandle, logctx);
-    while (!back->sendok(backhandle)) {
-	if (back->exitcode(backhandle) >= 0)
+    while (!backend_sendok(backend)) {
+        if (backend_exitcode(backend) >= 0)
 	    return 1;
 	if (ssh_sftp_loop_iteration() < 0) {
 	    fprintf(stderr, "ssh_init: error during SSH connection setup\n");
@@ -2881,8 +2845,8 @@ void cmdline_error(const char *p, ...)
     exit(1);
 }
 
-const int share_can_be_downstream = TRUE;
-const int share_can_be_upstream = FALSE;
+const bool share_can_be_downstream = true;
+const bool share_can_be_upstream = false;
 
 /*
  * Main program. Parse arguments etc.
@@ -2896,7 +2860,7 @@ int psftp_main(int argc, char *argv[])
     int modeflags = 0;
     char *batchfile = NULL;
 
-    flags = FLAG_STDERR | FLAG_INTERACTIVE
+    flags = FLAG_INTERACTIVE
 #ifdef FLAG_SYNCAGENT
 	| FLAG_SYNCAGENT
 #endif
@@ -2909,7 +2873,7 @@ int psftp_main(int argc, char *argv[])
     /* Load Default Settings before doing anything else. */
     conf = conf_new();
     do_defaults(NULL, conf);
-    loaded_session = FALSE;
+    loaded_session = false;
 
     for (i = 1; i < argc; i++) {
 	int ret;
@@ -2928,7 +2892,7 @@ int psftp_main(int argc, char *argv[])
 	} else if (ret == 1) {
 	    /* We have our own verbosity in addition to `flags'. */
 	    if (flags & FLAG_VERBOSE)
-		verbose = 1;
+		verbose = true;
 	} else if (strcmp(argv[i], "-h") == 0 ||
 		   strcmp(argv[i], "-?") == 0 ||
                    strcmp(argv[i], "--help") == 0) {
@@ -2940,7 +2904,7 @@ int psftp_main(int argc, char *argv[])
                    strcmp(argv[i], "--version") == 0) {
 	    version();
 	} else if (strcmp(argv[i], "-batch") == 0) {
-	    console_batch_mode = 1;
+	    console_batch_mode = true;
 	} else if (strcmp(argv[i], "-b") == 0 && i + 1 < argc) {
 	    mode = 1;
 	    batchfile = argv[++i];
@@ -2957,7 +2921,7 @@ int psftp_main(int argc, char *argv[])
     }
     argc -= i;
     argv += i;
-    back = NULL;
+    backend = NULL;
 
     /*
      * If the loaded session provides a hostname, and a hostname has not
@@ -2987,16 +2951,15 @@ int psftp_main(int argc, char *argv[])
 
     ret = do_sftp(mode, modeflags, batchfile);
 
-    if (back != NULL && back->connected(backhandle)) {
+    if (backend && backend_connected(backend)) {
 	char ch;
-	back->special(backhandle, TS_EOF);
-        sent_eof = TRUE;
+        backend_special(backend, SS_EOF, 0);
+        sent_eof = true;
 	sftp_recvdata(&ch, 1);
     }
     do_sftp_cleanup();
     random_save_seed();
     cmdline_cleanup();
-    console_provide_logctx(NULL);
     sk_cleanup();
 
     return ret;

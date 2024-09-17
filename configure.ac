@@ -120,7 +120,10 @@ case "$gtk_version_desired:$gtk" in
     # manual check for gtk1
     AC_PATH_PROG(GTK1_CONFIG, gtk-config, absent)
     if test "$GTK1_CONFIG" != "absent"; then
-      GTK_CFLAGS=`"$GTK1_CONFIG" --cflags`
+      # the gtk1 headers need -std=gnu89, which flips round the
+      # definitions of 'inline' and 'extern inline' to their old GNU
+      # semantics before C99 chose different ones
+      GTK_CFLAGS="`"$GTK1_CONFIG" --cflags` -std=gnu89"
       GTK_LIBS=`"$GTK1_CONFIG" --libs`
       gtk=1
     fi
@@ -157,7 +160,7 @@ AC_CHECK_LIB(X11, XOpenDisplay,
              [GTK_LIBS="-lX11 $GTK_LIBS"
               AC_DEFINE([HAVE_LIBX11],[],[Define if libX11.a is available])])
 
-AC_CHECK_FUNCS([getaddrinfo posix_openpt ptsname setresuid strsignal updwtmpx])
+AC_CHECK_FUNCS([getaddrinfo posix_openpt ptsname setresuid strsignal updwtmpx fstatat dirfd])
 AC_CHECK_DECLS([CLOCK_MONOTONIC], [], [], [[#include <time.h>]])
 AC_SEARCH_LIBS([clock_gettime], [rt], [AC_DEFINE([HAVE_CLOCK_GETTIME],[],[Define if clock_gettime() is available])])
 
@@ -185,7 +188,7 @@ AS_IF([test AS_VAR_GET(x_cv_linux_so_peercred) = yes],
 
 if test "x$GCC" = "xyes"; then
   :
-  AC_SUBST(WARNINGOPTS, ['-Wall -Werror'])
+  AC_SUBST(WARNINGOPTS, ['-Wall -Werror -Wpointer-arith'])
 else
   :
   AC_SUBST(WARNINGOPTS, [])
