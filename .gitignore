@@ -10,6 +10,8 @@ CMakeFiles/
 Debug/
 Win32/
 cmake_install.cmake
+/licence.h
+/Makefile.am
 /shipped.txt
 *.dir/
 *.lib
@@ -76,6 +78,7 @@ Makefile
 *.a
 /charset/sbcsdat.c
 /contrib/cygtermd/cygtermd.exe
+/doc/html/*
 /doc/*.html
 /doc/*.txt
 /doc/*.cnt
@@ -109,6 +112,7 @@ Makefile
 /unix/stamp-h1
 /unix/*.log
 /unix/.deps
+/unix/Makefile.*
 /windows/*.pdb
 /windows/*.ilk
 /windows/*.res
@@ -140,3 +144,14 @@ Makefile
 /windows/*.msi
 /windows/*.wixobj
 /windows/*.wixpdb
+/windows/build64
+/windows/build32
+/windows/DEVCPP
+/windows/MSVC
+/windows/VS2010
+/windows/VS2012
+/windows/Makefile.*
+/windows/msibanner.bmp
+/windows/msidialog.bmp
+/windows/to-sign.txt
+/docbuild
