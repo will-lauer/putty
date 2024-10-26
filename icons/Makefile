@@ -36,9 +36,11 @@ install: icos cicons
 
 $(PAMS): %.pam: mkicon.py
 	./mkicon.py $(MODE) $(join $(subst -, ,$(basename $@)),_icon) $@
+	sleep 1
 
 $(PNGS) $(MONOPNGS) $(TRUEPNGS): %.png: %.pam
-	convert $< $@
+	magick $< $@
+	sleep 1
 
 $(MONOPAMS): %.pam: mkicon.py
 	./mkicon.py -2 $(MODE) $(join $(subst -, ,$(subst -mono,,$(basename $@))),_icon) $@
@@ -47,44 +49,44 @@ $(TRUEPAMS): %.pam: mkicon.py
 	./mkicon.py -T $(MODE) $(join $(subst -, ,$(subst -true,,$(basename $@))),_icon) $@
 
 putty.ico: putty-256.png 
-	convert -colors 16 -background transparent $< -define icon:auto-resize=64,48,32,16 $@
+	magick $< -colors 16 -background transparent -define icon:auto-resize=64,48,32,16 $@
 
 puttycfg.ico: puttycfg-256.png 
-	convert -colors 16 -background transparent $< -define icon:auto-resize=64,48,32,16 $@
+	magick $< -colors 16 -background transparent -define icon:auto-resize=64,48,32,16 $@
 
 puttygen.ico: puttygen-256.png
-	convert -colors 16 -background transparent $< -define icon:auto-resize=64,48,32,16 $@
+	magick $< -colors 16 -background transparent -define icon:auto-resize=64,48,32,16 $@
 
 pageant.ico: pageant-256.png
-	convert -colors 16 -background transparent $< -define icon:auto-resize=64,48,32,16 $@
+	magick $< -colors 16 -background transparent -define icon:auto-resize=64,48,32,16 $@
 
 pageants.ico: pageant-256.png
-	convert -colors 16 -background transparent $< -define icon:auto-resize=16 $@
+	magick $< -colors 16 -background transparent -define icon:auto-resize=16 $@
 
 pscp.ico: pscp-256.png
-	convert -colors 16 -background transparent $< -define icon:auto-resize=64,48,32,16 $@
+	magick $< -colors 16 -background transparent -define icon:auto-resize=64,48,32,16 $@
 
 # Because the installer icon makes heavy use of brown when drawing
 # the cardboard box, it's worth having 8-bit versions of it in
 # addition to the 4- and 1-bit ones.
 puttyins.ico: puttyins-256.png
-	convert -colors 256 -background transparent $< -define icon:auto-resize=64,48,32,16 $@
+	magick $< -colors 256 -background transparent -define icon:auto-resize=64,48,32,16 $@
 
 # Icon for the website. (This isn't linked into "make all".)
 website.ico: putty-256.png
-	convert -colors 16 -background transparent $< -define icon:auto-resize=16 $@
+	magick $< -colors 16 -background transparent -define icon:auto-resize=16 $@
 
 xpmputty.c: putty-16.png putty-32.png putty-48.png
-	./cicon.pl main_icon $^ > $@
+	perl ./cicon.pl main_icon $^ > $@
 
 xpmpucfg.c: puttycfg-16.png puttycfg-32.png puttycfg-48.png
-	./cicon.pl cfg_icon $^ > $@
+	perl ./cicon.pl cfg_icon $^ > $@
 
 xpmpterm.c: pterm-16.png pterm-32.png pterm-48.png
-	./cicon.pl main_icon $^ > $@
+	perl ./cicon.pl main_icon $^ > $@
 
 xpmptcfg.c: ptermcfg-16.png ptermcfg-32.png ptermcfg-48.png
-	./cicon.pl cfg_icon $^ > $@
+	perl ./cicon.pl cfg_icon $^ > $@
 
 PuTTY.icns: putty-16-mono.pam putty-16.pam \
 	    putty-32-mono.pam putty-32.pam \

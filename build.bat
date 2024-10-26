@@ -3,8 +3,8 @@ setlocal
 set MSYS_HOME=C:\msys64
 set MINGW32_HOME=c:\msys64\mingw32
 set MINGW64_HOME=c:\msys64\mingw64
-set IMAGEMAGIC_HOME=c:\Program Files\ImageMagick-7.1.0-Q16-HDRI
-set PYTHON_HOME=%LOCALAPPDATA%\Programs\Python\Python38
+set IMAGEMAGIC_HOME=c:\Program Files\ImageMagick-7.1.1-Q16-HDRI
+set PYTHON_HOME=%LOCALAPPDATA%\Programs\Python\Python310
 
 for /f usebackq %%a in (`c:\msys64\usr\bin\date.EXE +%%Y-%%m-%%d`) do set Ndate=%%a
 for /f usebackq %%a in (`c:\msys64\usr\bin\date.EXE +%%Y%%m%%d`) do set Date=%%a
@@ -41,7 +41,7 @@ set PATH=%MSYS_HOME%\bin;%MSYS_HOME%\usr\bin;%IMAGEMAGIC_HOME%;%WIX%\bin;%PYTHON
 
 
 pushd doc
-make VERSION="%Puttytextver%" HALIBUT=c:\users\wlauer\downloads\halibut.exe putty.chm
+mingw32-make VERSION="%Puttytextver%" HALIBUT=c:\users\WillLauer\downloads\halibut.exe putty.chm
 popd
 
 REM build putty.iss
@@ -50,10 +50,10 @@ popd
 
 
 pushd icons
-make
+mingw32-make
 popd
-convert -size 164x312 gradient:blue-white -distort SRT -90 -swirl 180 ( -size 329x312 canvas:white ) +append ( icons/putty-48.png -geometry +28+24 ) -composite ( icons/pscp-48.png -geometry +88+96 ) -composite ( icons/puttygen-48.png -geometry +28+168 ) -composite ( icons/pageant-48.png -geometry +88+240 ) -composite windows/msidialog.bmp
-convert -size 493x58 canvas:white ( icons/putty-48.png -geometry +440+5 ) -composite windows/msibanner.bmp
+magick -size 164x312 gradient:blue-white -distort SRT -90 -swirl 180 ( -size 329x312 canvas:white ) +append ( icons/putty-48.png -geometry +28+24 ) -composite ( icons/pscp-48.png -geometry +88+96 ) -composite ( icons/puttygen-48.png -geometry +28+168 ) -composite ( icons/pageant-48.png -geometry +88+240 ) -composite windows/msidialog.bmp
+magick -size 493x58 canvas:white ( icons/putty-48.png -geometry +440+5 ) -composite windows/msibanner.bmp
 
 
 
@@ -63,20 +63,20 @@ setlocal
 set PATH=%MINGW64_HOME%\bin;%PATH%
 rmdir /q /s build64
 mkdir build64
-make -s -f Makefile.mgw BUILDDIR=build64/ all
+mingw32-make -s -f Makefile.mgw BUILDDIR=build64/ all
 rm -f build64\testcrypt.exe
 endlocal
 
-setlocal
-set PATH=%MINGW32_HOME%\bin;%PATH%
-rmdir /q /s build32
-mkdir build32
-make -s -f Makefile.mgw BUILDDIR=build32/ all
-rm -f build32\testcrypt.exe
-endlocal
+@REM setlocal
+@REM set PATH=%MINGW32_HOME%\bin;%PATH%
+@REM rmdir /q /s build32
+@REM mkdir build32
+@REM mingw32-make -s -f Makefile.mgw BUILDDIR=build32/ all
+@REM rm -f build32\testcrypt.exe
+@REM endlocal
 
 candle -arch x64 -dRealPlatform=x64 -dDllOk=yes -dBuilddir=build64/ "-dWinver=%Winver%" "-dPuttytextver=%Puttytextver%" installer.wxs && light -ext WixUIExtension -ext WixUtilExtension -sval installer.wixobj -o installer64.msi -spdb
-candle -arch x86 -dRealPlatform=x86 -dDllOk=yes -dBuilddir=build32/ "-dWinver=%Winver%" "-dPuttytextver=%Puttytextver%" installer.wxs && light -ext WixUIExtension -ext WixUtilExtension -sval installer.wixobj -o installer32.msi -spdb
+@REM candle -arch x86 -dRealPlatform=x86 -dDllOk=yes -dBuilddir=build32/ "-dWinver=%Winver%" "-dPuttytextver=%Puttytextver%" installer.wxs && light -ext WixUIExtension -ext WixUtilExtension -sval installer.wixobj -o installer32.msi -spdb
 
 popd
 endlocal
