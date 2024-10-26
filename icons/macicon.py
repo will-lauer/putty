@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 # Generate Mac OS X .icns files, or at least the simple subformats
 # that don't involve JPEG encoding and the like.

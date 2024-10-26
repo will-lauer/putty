@@ -3,8 +3,8 @@ setlocal
 set MSYS_HOME=C:\msys64
 set MINGW32_HOME=c:\msys64\mingw32
 set MINGW64_HOME=c:\msys64\mingw64
-set IMAGEMAGIC_HOME=c:\Program Files\ImageMagick-7.1.0-Q16-HDRI
-set PYTHON_HOME=%LOCALAPPDATA%\Programs\Python\Python38
+set IMAGEMAGIC_HOME=c:\Program Files\ImageMagick-7.1.1-Q16-HDRI
+set PYTHON_HOME=%LOCALAPPDATA%\Programs\Python\Python310
 
 for /f usebackq %%a in (`c:\msys64\usr\bin\date.EXE +%%Y-%%m-%%d`) do set Ndate=%%a
 for /f usebackq %%a in (`c:\msys64\usr\bin\date.EXE +%%Y%%m%%d`) do set Date=%%a
@@ -33,7 +33,7 @@ set PATH=%MINGW64_HOME%\bin;%MSYS_HOME%\bin;%MSYS_HOME%\usr\bin;%IMAGEMAGIC_HOME
 mkdir docbuild
 pushd docbuild
 setlocal
-set PATH=c:\users\wlauer\downloads;%PATH%
+set PATH=c:\users\WillLauer\downloads;%PATH%
 cmake -G "MinGW Makefiles" ..\doc
 mingw32-make
 endlocal
@@ -56,8 +56,8 @@ mingw32-make
 popd
 
 REM from make_install_images.sh
-convert -size 164x312 gradient:blue-white -distort SRT -90 -swirl 180 ( icons/putty-48.png -geometry +28+24 ) -composite ( icons/pscp-48.png -geometry +88+96 ) -composite ( icons/puttygen-48.png -geometry +28+168 ) -composite ( icons/pageant-48.png -geometry +88+240 ) -composite windows/msidialog.bmp
-convert -size 493x58 canvas:white ( icons/putty-48.png -geometry +440+5 ) -composite windows/msibanner.bmp
+magick -size 164x312 gradient:blue-white -distort SRT -90 -swirl 180 ( icons/putty-48.png -geometry +28+24 ) -composite ( icons/pscp-48.png -geometry +88+96 ) -composite ( icons/puttygen-48.png -geometry +28+168 ) -composite ( icons/pageant-48.png -geometry +88+240 ) -composite windows/msidialog.bmp
+magick -size 493x58 canvas:white ( icons/putty-48.png -geometry +440+5 ) -composite windows/msibanner.bmp
 
 mkdir windows\build64
 pushd windows\build64

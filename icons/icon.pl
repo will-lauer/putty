@@ -120,14 +120,14 @@ sub readicon {
     my %pal;
 
     # Determine the icon's width and height.
-    my $w = `identify -format %w $filename`;
-    my $h = `identify -format %h $filename`;
+    my $w = `magick identify -format %w $filename`;
+    my $h = `magick identify -format %h $filename`;
 
     # Read the file in as RGBA data. We flip vertically at this
     # point, to avoid having to do it ourselves (.BMP and hence
     # .ICO are bottom-up).
     my $data = [];
-    open IDATA, "convert -flip -depth 8 $filename rgba:- |";
+    open IDATA, "magick $filename -flip -depth 8 rgba:- |";
     push @$data, $rgb while (read IDATA,$rgb,4,0) == 4;
     close IDATA;
     # Check we have the right amount of data.
