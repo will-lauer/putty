@@ -18,6 +18,7 @@ add_sources_from_current_dir(crypto
   dsa.c
   ecc-arithmetic.c
   ecc-ssh.c
+  ecc-ssh-pkcs11.c
   hash_simple.c
   hmac.c
   kex-hybrid.c
@@ -34,6 +35,7 @@ add_sources_from_current_dir(crypto
   pubkey-ssh1.c
   rfc6979.c
   rsa.c
+  rsa-pkcs11.c
   sha256-common.c
   sha256-select.c
   sha256-sw.c
@@ -45,6 +47,8 @@ add_sources_from_current_dir(crypto
   sha1-select.c
   sha1-sw.c
   xdmauth.c)
+
+add_subdirectory(pkcs11)
 
 include(CheckCSourceCompiles)
 

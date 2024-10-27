@@ -735,7 +735,7 @@ static inline size_t rsa_pkcs1_length_of_fixed_parts(const ssh_hashalg *halg)
     return halg->hlen + asn1_prefix.len + 2;
 }
 
-static unsigned char *rsa_pkcs1_signature_string(
+unsigned char *rsa_pkcs1_signature_string(
     size_t nbytes, const ssh_hashalg *halg, ptrlen data)
 {
     size_t fixed_parts = rsa_pkcs1_length_of_fixed_parts(halg);

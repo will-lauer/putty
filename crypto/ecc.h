@@ -240,4 +240,37 @@ EdwardsPoint *ecc_edwards_multiply(EdwardsPoint *, mp_int *);
 unsigned ecc_edwards_eq(EdwardsPoint *, EdwardsPoint *);
 void ecc_edwards_get_affine(EdwardsPoint *wp, mp_int **x, mp_int **y);
 
+struct ecsign_extra {
+    struct ec_curve *(*curve)(void);
+    const ssh_hashalg *hash;
+
+    /* These fields are used by the OpenSSH PEM format importer/exporter */
+    const unsigned char *oid;
+    int oidlen;
+
+    /* Human-readable algorithm description */
+    const char *alg_desc;
+
+    /* Some EdDSA instances prefix a string to all hash preimages, to
+     * disambiguate which signature variant they're being used with */
+    ptrlen hash_prefix;
+};
+
+char *ecc_cache_str_shared(
+    const char *curve_name, mp_int *x, mp_int *y);
+
+WeierstrassPoint *ecdsa_decode(
+    ptrlen encoded, const struct ec_curve *curve);
+#define get_wpoint(src, curve) \
+    BinarySource_get_wpoint(BinarySource_UPCAST(src), curve)
+WeierstrassPoint *BinarySource_get_wpoint(
+    BinarySource *src, const struct ec_curve *curve);
+#define put_wpoint(bs, point, curve, bare)                              \
+    BinarySink_put_wpoint(BinarySink_UPCAST(bs), point, curve, bare)
+void BinarySink_put_wpoint(
+    BinarySink *bs, WeierstrassPoint *point, const struct ec_curve *curve,
+    bool bare);
+
+
+
 #endif /* PUTTY_ECC_H */

@@ -38,6 +38,7 @@ add_sources_from_current_dir(utils
   utils/split_into_argv_w.c
   utils/version.c
   utils/win_strerror.c
+  utils/windlfcn.c
   unicode.c)
 if(NOT HAVE_STRTOUMAX)
   add_sources_from_current_dir(utils utils/strtoumax.c)

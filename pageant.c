@@ -11,6 +11,7 @@
 #include "ssh.h"
 #include "sshcr.h"
 #include "pageant.h"
+#include "crypto/pkcs11/sshpkcs11.h"
 
 /*
  * We need this to link with the RSA code, because rsa_ssh1_encrypt()
@@ -572,6 +573,241 @@ static void list_keys(BinarySink *bs, int ssh_version, bool extended)
 void pageant_make_keylist1(BinarySink *bs) { list_keys(bs, 1, false); }
 void pageant_make_keylist2(BinarySink *bs) { list_keys(bs, 2, false); }
 void pageant_make_keylist_extended(BinarySink *bs) { list_keys(bs, 2, true); }
+
+/*
+ * PKCS11 provider stuff
+ */
+typedef struct PageantProviderSort PageantProviderSort;
+typedef struct PageantProvider PageantProvider;
+
+struct PageantProviderSort {
+    ptrlen id;
+};
+
+struct PageantProvider {
+    PageantProviderSort sort;
+    ssh2_pkcs11_provider *provider;
+};
+static tree234* providertree;
+
+static void pp_free(PageantProvider* pp)
+{
+    if (pp->provider) pkcs11_free_provider(pp->provider);
+    sfree(pp);
+}
+
+static int provider_cmpfn(void *av, void *bv)
+{
+    PageantProviderSort* aprov = (PageantProviderSort*)av;
+    PageantProviderSort* bprov = (PageantProviderSort*)bv;
+    return ptrlen_strcmp(aprov->id, bprov->id);
+}
+
+static inline PageantProviderSort providersort(ptrlen id)
+{
+    PageantProviderSort sort;
+    sort.id = id;
+    return sort;
+}
+
+static PageantProvider *findprovider(ptrlen id)
+{
+    PageantProviderSort sort = providersort(id);
+    return find234(providertree, &sort, NULL);
+}
+
+static size_t pageant_count_providers(void)
+{
+    return count234(providertree);
+}
+static bool pageant_add_ssh2_provider(ssh2_pkcs11_provider *provider)
+{
+    PageantProvider *pp = snew(PageantProvider);
+    memset(pp, 0, sizeof(PageantProvider));
+    pp->sort.id = ptrlen_from_asciz(provider->id);
+
+    if (add234(providertree, pp) == pp) {
+        pp->provider = provider;
+        return true;
+    } else {
+        pp_free(pp);
+        return false;
+    }
+}
+
+static void pageant_add_ssh2_pkcs11_keys(ptrlen readerid)
+{
+    PageantProvider *pp = findprovider(readerid);
+
+    if (pp) {
+        ssh2_pkcs11_provider *provider = pp->provider;
+        for (int ii = 0; ii < provider->nslots; ++ii) {
+            for (int jj = 0; jj < provider->tokens[ii].num_keys; ++jj) {
+                ssh2_pkcs11_key *key = provider->tokens[ii].keys+jj;
+                ssh_key *sshk = ssh_key_new_priv(key->alg, ptrlen_from_strbuf(key->pubblob), ptrlen_from_strbuf(key->privblob));
+                if (sshk == NULL) {
+                    continue;
+                } else {
+                    ssh2_userkey *userkey = snew(ssh2_userkey);
+                    userkey->key = sshk;
+                    userkey->comment = dupprintf("%s", provider->id);
+
+                    {
+                        PageantPublicKey *pub = snew(PageantPublicKey);
+                        memset(pub, 0, sizeof(PageantPublicKey));
+                        PageantPrivateKey *priv = snew(PageantPrivateKey);
+                        memset(priv, 0, sizeof(PageantPrivateKey));
+
+                        priv->sort.ssh_version = 2;
+                        priv->base_pub = makeblob2base(userkey->key);
+                        pub->full_pub = makeblob2full(userkey->key);
+
+                        if (userkey->comment)
+                            pub->comment = dupstr(userkey->comment);
+
+                        priv->skey = userkey->key;
+                        pageant_add_key_common(pub, priv);
+
+                    }
+                }
+            }
+        }
+    }
+}
+
+static void pageant_remove_ssh2_pkcs11_keys(ptrlen readerid)
+{
+    PageantProvider *pp = findprovider(readerid);
+
+    if (pp) {
+        ssh2_pkcs11_provider *provider = pp->provider;
+        for (int ii = 0; ii < provider->nslots; ++ii) {
+            for (int jj = 0; jj < provider->tokens[ii].num_keys; ++jj) {
+                ssh2_pkcs11_key *key = provider->tokens[ii].keys+jj;
+                if (key->pubblob) {
+                    PageantPublicKey *pk = findpubkey2(ptrlen_from_strbuf(key->pubblob));
+                    if (pk) {
+                        del_pubkey(pk);
+                        pk_pub_free(pk);
+                    }
+                }
+            }
+        }
+    }
+}
+
+static bool pageant_add_ssh2_pkcs11_library(ptrlen readerid, ptrlen pin,
+                                            char** retstr)
+{
+    *retstr = NULL;
+
+    if(findprovider(readerid)) {
+        *retstr = "provider already loaded";
+        return false;
+    }
+
+    ssh2_pkcs11_provider* provider = snew(ssh2_pkcs11_provider);
+    memset(provider, 0, sizeof(ssh2_pkcs11_provider));
+    provider->id = mkstr(readerid);
+    provider->pin = mkstr(pin);
+
+    int status = pkcs11_add_provider(provider);
+    switch (status) {
+    case PKCS11_FAILED:
+        *retstr = "smart card setup failed";
+        goto provider_cleanup;
+    case PKCS11_NO_KEYS:
+        *retstr = "no keys found in smart card";
+        goto provider_cleanup;
+    case PKCS11_INVALID_PIN:
+        *retstr = "need passphrase";
+        goto provider_cleanup;
+    }
+
+    if (pageant_add_ssh2_provider(provider)) {
+        return true;
+    } else {
+        *retstr = "provider already present";
+        goto provider_cleanup;
+    }
+
+    provider_cleanup:
+    if (provider) {
+        pkcs11_free_provider(provider);
+        sfree(provider);
+    }
+
+    return false;
+}
+
+static bool pageant_remove_ssh2_pkcs11_library(ptrlen readerid, char** retstr)
+{
+    *retstr = NULL;
+
+    PageantProviderSort sort = providersort(readerid);
+    PageantProvider *deleted = del234(providertree, &sort);
+
+    if (!deleted) {
+        *retstr = "provider not found";
+        return false;
+    }
+
+    ssh2_pkcs11_provider* provider = deleted->provider;
+
+    //pkcs11_remove_keys(provider, pkcs11keys, cmpkeys_ssh2);
+    pkcs11_del_provider(provider);
+
+    pp_free(deleted);
+
+    return true;
+}
+
+static bool pageant_refresh_ss2_pkcs11_library(ptrlen readerid, char** retstr)
+{
+    *retstr = NULL;
+
+    PageantProvider *pp = findprovider(readerid);
+
+    if (!pp) {
+        *retstr = "provider not found";
+        return false;
+    }
+
+    pageant_remove_ssh2_pkcs11_keys(readerid);
+
+    int status = pkcs11_refresh_provider(pp->provider);
+    switch (status) {
+    case PKCS11_FAILED:
+        *retstr = "smart card setup failed";
+        return false;
+    case PKCS11_NO_KEYS:
+        *retstr = "no keys found in smart card";
+        return false;
+    case PKCS11_INVALID_PIN:
+        *retstr = "invalid pin";
+        return false;
+    }
+
+    pageant_add_ssh2_pkcs11_keys(readerid);
+
+    return true;
+}
+
+
+const char *pageant_nth_provider_id(int i)
+{
+    PageantProvider *pp = index234(providertree, i);
+    if (pp)
+        return pp->provider->id;
+    else
+        return NULL;
+}
+
+
+/*
+ * pagent stuff
+ */
+
 
 void pageant_register_client(PageantClient *pc)
 {
@@ -1173,6 +1409,7 @@ static PageantAsyncOp *pageant_make_op(
         }
         break;
       }
+      case SSH2_AGENTC_ADD_ID_CONSTRAINED:
       case SSH2_AGENTC_ADD_IDENTITY: {
         /*
          * Add to the list and return SSH_AGENT_SUCCESS, or
@@ -1353,6 +1590,79 @@ static PageantAsyncOp *pageant_make_op(
 
         pageant_client_log(pc, reqid, "reply: SSH_AGENT_SUCCESS");
         break;
+      }
+      case SSH2_AGENTC_ADD_SMARTCARD_KEY: {
+          /*
+           * Add keys from PKCS11 smart card
+           */
+          char *retstr = NULL;
+          ptrlen pin;
+
+          pageant_client_log(pc, reqid, "request: SSH2_AGENTC_ADD_SMARTCARD_KEY");
+
+          Filename* filename = filename_deserialise(msg);
+          pin = get_string(msg);
+
+          if (get_err(msg)) {
+              fail("unable to decode request");
+              filename_free(filename);
+              break;
+          }
+
+          if (!pc->suppress_logging) {
+              pageant_client_log(pc, reqid, "submitted pkcs11 provider: %s", filename_to_str(filename));
+          }
+
+          ptrlen readerid = ptrlen_from_asciz(filename_to_str(filename));
+          if (pageant_add_ssh2_pkcs11_library(readerid, pin, &retstr)) {
+              pageant_client_log(pc, reqid, "provider added successfully. now adding keys");
+
+              pageant_add_ssh2_pkcs11_keys(readerid);
+
+              keylist_update();
+              put_byte(sb, SSH_AGENT_SUCCESS);
+
+              pageant_client_log(pc, reqid, "reply: SSH_AGENT_SUCCESS");
+          } else {
+              fail(retstr);
+          }
+          filename_free(filename);
+
+          break;
+      }
+      case SSH2_AGENTC_REMOVE_SMARTCARD_KEY: {
+          /*
+           * Remove PKCS11 smart card and all associated keys
+           */
+          ptrlen readerid;
+
+          pageant_client_log(pc, reqid, "request: SSH2_AGENTC_REMOVE_SMARTCARD_KEY");
+
+          readerid = get_string(msg);
+          get_string(msg); /* pin is ignored for remove */
+
+          if (get_err(msg)) {
+              fail("unable to decode request");
+          }
+
+          char *retstr;
+
+          pageant_remove_ssh2_pkcs11_keys(readerid);
+
+          if (pageant_remove_ssh2_pkcs11_library(readerid, &retstr)) {
+              if (!pc->suppress_logging) {
+                  char *filename = mkstr(readerid);
+                  pageant_client_log(pc, reqid, "found with id: %s", filename);
+                  sfree(filename);
+              }
+
+              keylist_update();
+              put_byte(sb, SSH_AGENT_SUCCESS);
+              pageant_client_log(pc, reqid, "reply: SSH_AGENT_SUCCESS");
+          } else {
+              fail(retstr);
+          }
+          break;
       }
       case SSH2_AGENTC_EXTENSION: {
         enum Extension exttype = EXT_UNKNOWN;
@@ -1581,6 +1891,40 @@ static PageantAsyncOp *pageant_make_op(
             }
             break;
           }
+
+          case EXT_LIST_PROVIDER: {
+              /* Standard request to list the supported extensions. */
+              put_byte(sb, SSH_AGENT_SUCCESS);
+              put_uint32(sb, pageant_count_providers());
+
+              PageantProvider *pp;
+
+              for (int ii = 0; NULL != (pp = index234(providertree, ii)); ii++) {
+                  put_stringpl(sb, pp->sort.id);
+              }
+
+              break;
+          }
+
+          case EXT_REFRESH_PROVIDER: {
+              ptrlen readerid = get_string(msg);
+
+              if (!pc->suppress_logging) {
+                  char *id = mkstr(readerid);
+                  pageant_client_log(pc, reqid, "refreshing pkcs11 provider: %s", id);
+                  sfree(id);
+              }
+
+              char *retstr;
+              if (pageant_refresh_ss2_pkcs11_library(readerid, &retstr)) {
+                  keylist_update();
+                  put_byte(sb, SSH_AGENT_SUCCESS);
+              } else {
+                  fail(retstr);
+              }
+              break;
+          }
+
         }
         break;
       }
@@ -1619,6 +1963,7 @@ void pageant_init(void)
     pageant_local = true;
     pubkeytree = newtree234(pubkey_cmpfn);
     privkeytree = newtree234(privkey_cmpfn);
+    providertree = newtree234(provider_cmpfn);
 }
 
 static PageantPublicKey *pageant_nth_pubkey(int ssh_version, int i)
@@ -1684,7 +2029,7 @@ void pageant_reencrypt_all(void)
 #define crGetChar(c) do                                         \
     {                                                           \
         while (len == 0) {                                      \
-            *crLine = __LINE__; return; case __LINE__:;         \
+            *crLine =__LINE__; return; case __LINE__:;          \
         }                                                       \
         len--;                                                  \
         (c) = (unsigned char)*data++;                           \
@@ -2203,7 +2548,7 @@ int pageant_add_keyfile(Filename *filename, const char *passphrase,
     *retstr = NULL;
 
     type = key_type(filename);
-    if (type != SSH_KEYTYPE_SSH1 && type != SSH_KEYTYPE_SSH2) {
+    if (type != SSH_KEYTYPE_SSH1 && type != SSH_KEYTYPE_SSH2 && type != SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH) {
         *retstr = dupprintf("Couldn't load this key (%s)",
                             key_type_to_str(type));
         return PAGEANT_ACTION_FAILURE;
@@ -2462,6 +2807,114 @@ int pageant_add_keyfile(Filename *filename, const char *passphrase,
     return PAGEANT_ACTION_OK;
 }
 
+int pageant_add_certfile(Filename *filename, char **retstr)
+{
+    ssh2_userkey *skey = NULL;
+    const char *error = NULL;
+    int type;
+
+    *retstr = NULL;
+
+    type = key_type(filename);
+    if (type != SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH) {
+        *retstr = dupprintf("Couldn't load this key (%s)",
+                            key_type_to_str(type));
+        return PAGEANT_ACTION_FAILURE;
+    }
+
+    /*
+     * See if the cert is already loaded (in the primary Pageant,
+     * which may or may not be us).
+     */
+    strbuf *blob = strbuf_new();
+    char *algname = NULL;
+    char *comment = NULL;
+    {
+        KeyList *kl;
+        // This will fill ing the blob, comment, and algorithm, which we use
+        // later to construct the certificate object.
+
+        // Then read the cert file
+        if (!ppk_loadpub_f(filename, &algname, BinarySink_UPCAST(blob),
+                           &comment, &error)) {
+            *retstr = dupprintf("Couldn't load certificate (%s)", error);
+            strbuf_free(blob);
+            if (algname) sfree(algname);
+            if (comment) sfree(comment);
+
+            return PAGEANT_ACTION_FAILURE;
+        }
+
+        // Get the list of keys
+        kl = pageant_get_keylist(2);
+
+        if (kl) {
+            if (kl->broken) {
+                *retstr = dupstr("Received broken key list from agent");
+                keylist_free(kl);
+                strbuf_free(blob);
+                if (algname) sfree(algname);
+                if (comment) sfree(comment);
+                return PAGEANT_ACTION_FAILURE;
+            }
+
+            // See if the certificate is already in the list of keys
+            for (size_t i = 0; i < kl->nkeys; i++) {
+                if (ptrlen_eq_ptrlen(ptrlen_from_strbuf(blob),
+                                     kl->keys[i].blob)) {
+                    /* Key is already present; we can now leave. */
+                    keylist_free(kl);
+                    strbuf_free(blob);
+                    if (algname) sfree(algname);
+                    if (comment) sfree(comment);
+                    return PAGEANT_ACTION_OK;
+                }
+            }
+
+            keylist_free(kl);
+        }
+    }
+
+    error = NULL;
+
+    const ssh_keyalg *alg = find_pubkey_alg(algname);
+    skey = snew(ssh2_userkey);
+    skey->comment = dupstr(comment ? comment : (!filename_is_null(filename) ? filename_to_str(filename) : ""));
+    skey->key = ssh_key_new_priv(alg, ptrlen_from_strbuf(blob),  ptrlen_from_asciz(""));
+
+    strbuf_free(blob);
+    if (comment) sfree(comment);
+    sfree(algname);
+
+    // if we failed to parse the certificate, error out.
+    if (!skey->key) {
+        *retstr = dupstr("Couldn't load this certificate");
+        sfree(skey->comment);
+        sfree(skey);
+        return PAGEANT_ACTION_FAILURE;
+    }
+
+    PageantClientOp *pco = pageant_client_op_new();
+    put_byte(pco, SSH2_AGENTC_ADD_IDENTITY);
+    put_stringz(pco, ssh_key_ssh_id(skey->key));
+    ssh_key_openssh_blob(skey->key, BinarySink_UPCAST(pco));
+
+    put_stringz(pco, skey->comment);
+    unsigned reply = pageant_client_op_query(pco);
+    pageant_client_op_free(pco);
+    sfree(skey->comment);
+    ssh_key_free(skey->key);
+    sfree(skey);
+
+    if (reply != SSH_AGENT_SUCCESS) {
+        *retstr = dupstr("The already running Pageant "
+                         "refused to add the key.");
+        return PAGEANT_ACTION_FAILURE;
+    }
+
+    return PAGEANT_ACTION_OK;
+}
+
 int pageant_enum_keys(pageant_key_enum_fn_t callback, void *callback_ctx,
                       char **retstr)
 {
@@ -2689,4 +3142,165 @@ void pageant_pubkey_free(struct pageant_pubkey *key)
     sfree(key->comment);
     strbuf_free(key->blob);
     sfree(key);
+}
+
+typedef struct ProviderListEntry {
+    ptrlen readerid;
+} ProviderListEntry;
+typedef struct ProviderList {
+    strbuf *raw_data;
+    ProviderListEntry *providers;
+    size_t nproviders;
+    bool broken;
+} ProviderList;
+
+static void providerlist_free(ProviderList *pl)
+{
+    sfree(pl->providers);
+    strbuf_free(pl->raw_data);
+    sfree(pl);
+}
+
+static ProviderList *pageant_get_providerlist(void)
+{
+    PageantClientOp *pco = pageant_client_op_new();
+    put_byte(pco, SSH2_AGENTC_EXTENSION);
+    put_stringpl(pco, extension_names[EXT_LIST_PROVIDER]);
+
+    unsigned reply = pageant_client_op_query(pco);
+
+    if (reply != SSH_AGENT_SUCCESS) {
+        // unable to query list of agents
+        pageant_client_op_free(pco);
+        return NULL;
+    }
+
+    ProviderList *pl = snew(ProviderList);
+    pl->nproviders = get_uint32(pco);
+    pl->providers = snewn(pl->nproviders, struct ProviderListEntry);
+
+    for (size_t ii = 0; ii < pl->nproviders && !get_err(pco); ++ii) {
+        // This copies references to the string in the backing pco
+        // buffer. It doesn't copy the string, so be careful
+        // with the memory
+        pl->providers[ii].readerid = get_string(pco);
+    }
+
+    pl->broken = get_err(pco);
+    // preserve the backing buffer as part of the list so
+    // the references stay valid. Null out the value in pco so that
+    // it doesn't get freed from underneath us.
+    pl->raw_data = pco->buf;
+    pco->buf = NULL;
+
+    pageant_client_op_free(pco);
+
+    return pl;
+}
+
+int pageant_add_providerfile(Filename* filename, const char* passphrase,
+                         char **retstr)
+{
+    *retstr = NULL;
+
+    ProviderList *pl = pageant_get_providerlist();
+    if (pl) {
+        if (pl->broken) {
+            *retstr = dupstr("Received broken provider list from agent");
+            providerlist_free(pl);
+            return PAGEANT_ACTION_FAILURE;
+        }
+
+        for (size_t ii = 0; ii < pl->nproviders; ++ii) {
+            if (ptrlen_eq_string(pl->providers[ii].readerid, filename_to_str(filename))) {
+                /* provider is already present, so just leave. */
+                providerlist_free(pl);
+                return PAGEANT_ACTION_OK;
+            }
+        }
+    }
+
+    PageantClientOp *pco = pageant_client_op_new();
+    put_byte(pco, SSH2_AGENTC_ADD_SMARTCARD_KEY);
+    filename_serialise(BinarySink_UPCAST(pco), filename);
+    put_stringz(pco, passphrase ? passphrase : "");
+    unsigned reply = pageant_client_op_query(pco);
+    pageant_client_op_free(pco);
+
+    if (reply != SSH_AGENT_SUCCESS) {
+        // we can't tell the failure cause due to the agent protocol.
+        // failure might be because we need a pin, have a bad dll, or
+        // smart cards aren't supported. Return a generic error but prompt
+        // for a pin in case that is the issue.
+        *retstr = dupstr("The already running Pageant refused "
+                "to add the provider");
+        return PAGEANT_ACTION_NEED_PP;
+    }
+
+    return PAGEANT_ACTION_OK;
+}
+
+int pageant_delete_providerfile(const char* readerid, char **retstr)
+{
+    PageantClientOp *pco = pageant_client_op_new();
+
+    put_byte(pco, SSH2_AGENTC_REMOVE_SMARTCARD_KEY);
+    put_stringz(pco, readerid);
+    put_stringz(pco, ""); /* pin - not used for delete */
+
+    unsigned reply = pageant_client_op_query(pco);
+    pageant_client_op_free(pco);
+
+    if (reply != SSH_AGENT_SUCCESS) {
+        *retstr = dupstr("Agent failed to delete provider");
+        return PAGEANT_ACTION_FAILURE;
+    } else {
+        *retstr = NULL;
+        return PAGEANT_ACTION_OK;
+    }
+}
+
+int pageant_refresh_providerfile(const char *readerid, char **retstr)
+{
+    PageantClientOp *pco = pageant_client_op_new();
+
+    put_byte(pco, SSH2_AGENTC_EXTENSION);
+    put_stringpl(pco, extension_names[EXT_REFRESH_PROVIDER]);
+    put_stringz(pco, readerid);
+
+    unsigned reply = pageant_client_op_query(pco);
+    pageant_client_op_free(pco);
+
+    if (reply != SSH_AGENT_SUCCESS) {
+        *retstr = "error refreshing pkcs11 provider";
+        return PAGEANT_ACTION_FAILURE;
+    } else {
+        *retstr = NULL;
+        return PAGEANT_ACTION_OK;
+    }
+}
+
+int pageant_enum_providers(pageant_provider_enum_fn_t callback, void* callback_ctx,
+                            char **retstr)
+{
+    ProviderList *pl = NULL;
+    int toret = PAGEANT_ACTION_FAILURE;
+
+    pl = pageant_get_providerlist();
+    if (pl && pl->broken) {
+        *retstr = dupstr("Recevied broken provider list form agent");
+        goto out;
+    } else if (pl) {
+        for (size_t ii = 0; ii < pl->nproviders; ++ii) {
+            callback(callback_ctx, pl->providers[ii].readerid);
+        }
+    }
+
+    *retstr = NULL;
+    toret = PAGEANT_ACTION_OK;
+
+    out:
+    if (pl)
+        providerlist_free(pl);
+    return toret;
 }
