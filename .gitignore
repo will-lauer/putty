@@ -155,3 +155,4 @@ Makefile
 /windows/msidialog.bmp
 /windows/to-sign.txt
 /docbuild
+/build/

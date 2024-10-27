@@ -597,6 +597,8 @@ bool rsa_verify(RSAKey *key);
 void rsa_ssh1_public_blob(BinarySink *bs, RSAKey *key, RsaSsh1Order order);
 int rsa_ssh1_public_blob_len(ptrlen data);
 void rsa_ssh1_private_blob_agent(BinarySink *bs, RSAKey *key);
+unsigned char *rsa_pkcs1_signature_string(
+    size_t nbytes, const ssh_hashalg *halg, ptrlen data);
 void duprsakey(RSAKey *dst, const RSAKey *src);
 void freersapriv(RSAKey *key);
 void freersakey(RSAKey *key);
@@ -1196,6 +1198,9 @@ extern const ssh_kexes ssh_ecdh_kex;
 extern const ssh_kexes ssh_ntru_hybrid_kex;
 extern const ssh_keyalg ssh_dsa;
 extern const ssh_keyalg ssh_rsa;
+extern const ssh_keyalg ssh_rsa_pkcs11;
+extern const ssh_keyalg ssh_rsa_pkcs11_sha256;
+extern const ssh_keyalg ssh_rsa_pkcs11_sha512;
 extern const ssh_keyalg ssh_rsa_sha256;
 extern const ssh_keyalg ssh_rsa_sha512;
 extern const ssh_keyalg ssh_ecdsa_ed25519;
@@ -1203,6 +1208,7 @@ extern const ssh_keyalg ssh_ecdsa_ed448;
 extern const ssh_keyalg ssh_ecdsa_nistp256;
 extern const ssh_keyalg ssh_ecdsa_nistp384;
 extern const ssh_keyalg ssh_ecdsa_nistp521;
+extern const ssh_keyalg ssh_ecds_pkcs11;
 extern const ssh_keyalg opensshcert_ssh_dsa;
 extern const ssh_keyalg opensshcert_ssh_rsa;
 extern const ssh_keyalg opensshcert_ssh_rsa_sha256;
@@ -1797,6 +1803,9 @@ enum {
 #define SSH2_AGENTC_ADD_IDENTITY                17
 #define SSH2_AGENTC_REMOVE_IDENTITY             18
 #define SSH2_AGENTC_REMOVE_ALL_IDENTITIES       19
+#define SSH2_AGENTC_ADD_SMARTCARD_KEY           20
+#define SSH2_AGENTC_REMOVE_SMARTCARD_KEY        21
+#define SSH2_AGENTC_ADD_ID_CONSTRAINED          25
 #define SSH2_AGENTC_EXTENSION                   27
 #define SSH_AGENT_EXTENSION_FAILURE             28
 
