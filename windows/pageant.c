@@ -54,6 +54,12 @@ static bool restrict_putty_acl = false;
 /* CWD for "add key" file requester. */
 static filereq *keypath = NULL;
 
+/* CWD for "add cert" file requester. */
+static filereq *certpath = NULL;
+
+/* CWD for "add provider" file requester. */
+static filereq *providerpath = NULL;
+
 /* From MSDN: In the WM_SYSCOMMAND message, the four low-order bits of
  * wParam are used by Windows, and should be masked off, so we shouldn't
  * attempt to store information in them. Hence all these identifiers have
@@ -417,6 +423,24 @@ static void keylist_update_callback(
 static int colpos_bits, colpos_hash, colpos_comment;
 
 /*
+ * Update dialog with provider list
+ */
+
+struct providerlist_update_ctx {
+    bool enable_remove_controls;
+};
+
+static void providerlist_update_callback(void* vctx, ptrlen readerid)
+{
+    struct providerlist_update_ctx *ctx = (struct providerlist_update_ctx *)vctx;
+
+    ctx->enable_remove_controls = true;
+    char* listentry = mkstr(readerid);
+    SendDlgItemMessage(keylist, IDC_KEYLIST_PROVIDER_LISTBOX, LB_ADDSTRING, 0, (LPARAM) listentry);
+    sfree(listentry);
+}
+
+/*
  * Update the visible key list.
  */
 void keylist_update(void)
@@ -443,6 +467,8 @@ void keylist_update(void)
         }
         SendDlgItemMessage(keylist, IDC_KEYLIST_LISTBOX,
                            LB_RESETCONTENT, 0, 0);
+        SendDlgItemMessage(keylist, IDC_KEYLIST_PROVIDER_LISTBOX,
+                            LB_RESETCONTENT, 0, 0);
 
         char *errmsg;
         struct keylist_update_ctx ctx[1];
@@ -470,10 +496,25 @@ void keylist_update(void)
         SendDlgItemMessage(keylist, IDC_KEYLIST_LISTBOX,
                            LB_SETCURSEL, (WPARAM) - 1, 0);
 
+        struct providerlist_update_ctx pctx[1];
+        pctx->enable_remove_controls=false;
+        status = pageant_enum_providers(providerlist_update_callback, pctx, &errmsg);
+        assert(status == PAGEANT_ACTION_OK);
+        assert(!errmsg);
+
+        SendDlgItemMessage(keylist, IDC_KEYLIST_PROVIDER_LISTBOX,
+                            LB_SETCURSEL, (WPARAM) - 1, 0);
+
+
         EnableWindow(GetDlgItem(keylist, IDC_KEYLIST_REMOVE),
                      ctx->enable_remove_controls);
         EnableWindow(GetDlgItem(keylist, IDC_KEYLIST_REENCRYPT),
                      ctx->enable_reencrypt_controls);
+
+        EnableWindow(GetDlgItem(keylist, IDC_KEYLIST_REFRESH_PROVIDER),
+                     pctx->enable_remove_controls);
+        EnableWindow(GetDlgItem(keylist, IDC_KEYLIST_REMOVE_PROVIDER),
+                     pctx->enable_remove_controls);
     }
 }
 
@@ -531,8 +572,8 @@ static void win_add_keyfile(Filename *filename, bool encrypted)
     }
 
   error:
-    message_box(traywindow, err, APPNAME, MB_OK | MB_ICONERROR, false,
-                HELPCTXID(errors_cantloadkey));
+    message_box(traywindow, err, APPNAME, MB_OK | MB_ICONERROR,
+                false, HELPCTXID(errors_cantloadkey));
   done:
     sfree(err);
     return;
@@ -559,7 +600,7 @@ static void prompt_add_keyfile(bool encrypted)
     of.lpstrTitle = "Select Private Key File";
     of.Flags = OFN_ALLOWMULTISELECT | OFN_EXPLORER;
     if (request_file(keypath, &of, true, false)) {
-        if (strlen(filelist) > of.nFileOffset) {
+        if(strlen(filelist) > of.nFileOffset) {
             /* Only one filename returned? */
             Filename *fn = filename_from_str(filelist);
             win_add_keyfile(fn, encrypted);
@@ -587,6 +628,181 @@ static void prompt_add_keyfile(bool encrypted)
     }
     sfree(filelist);
 }
+
+static void win_add_certfile(Filename *filename)
+{
+    char *err;
+    int ret;
+
+    ret = pageant_add_certfile(filename, &err);
+    if (ret == PAGEANT_ACTION_OK) {
+        goto done;
+    } else if (ret == PAGEANT_ACTION_FAILURE) {
+        goto error;
+    }
+
+    error:
+    message_box(traywindow, err, APPNAME, MB_OK | MB_ICONERROR,
+    		false, HELPCTXID(errors_cantloadkey));
+
+    done:
+    sfree(err);
+    return;
+}
+
+/*
+ * Prompt for a cert file to add, and add it.
+ */
+static void prompt_add_certfile(void)
+{
+    OPENFILENAME of;
+    char *filelist = snewn(8192, char);
+
+    if (!certpath) certpath = filereq_new();
+    memset(&of, 0, sizeof(of));
+    of.hwndOwner = traywindow;
+    of.lpstrFilter = FILTER_CERT_FILES_C;
+    of.lpstrCustomFilter = NULL;
+    of.nFilterIndex = 1;
+    of.lpstrFile = filelist;
+    *filelist = '\0';
+    of.nMaxFile = 8192;
+    of.lpstrFileTitle = NULL;
+    of.lpstrTitle = "Select Certificate File";
+    of.Flags = OFN_ALLOWMULTISELECT | OFN_EXPLORER;
+    if (request_file(certpath, &of, true, false)) {
+        if(strlen(filelist) > of.nFileOffset) {
+            /* Only one filename returned? */
+            Filename *fn = filename_from_str(filelist);
+            win_add_certfile(fn);
+            filename_free(fn);
+        } else {
+            /* we are returned a bunch of strings, end to
+             * end. first string is the directory, the
+             * rest the filenames. terminated with an
+             * empty string.
+             */
+            char *dir = filelist;
+            char *filewalker = filelist + strlen(dir) + 1;
+            while (*filewalker != '\0') {
+                char *filename = dupcat(dir, "\\", filewalker, NULL);
+                Filename *fn = filename_from_str(filename);
+                win_add_certfile(fn);
+                filename_free(fn);
+                sfree(filename);
+                filewalker += strlen(filewalker) + 1;
+            }
+        }
+
+        keylist_update();
+    }
+    sfree(filelist);
+}
+
+
+
+static void win_add_provider(Filename* filename)
+{
+    char *err;
+    int ret;
+
+    ret = pageant_add_providerfile(filename, NULL, &err);
+    if (ret == PAGEANT_ACTION_OK) {
+        goto done;
+    } else if (ret == PAGEANT_ACTION_FAILURE) {
+        goto error;
+    }
+
+    /* if we get here, we need a pin/passphrase */
+    while (1) {
+        INT_PTR dlgret;
+        struct PassphraseProcStruct pps;
+        pps.modal = true;
+        pps.dlgid = NULL;
+        pps.passphrase = NULL;
+        pps.comment = err;
+        dlgret = DialogBoxParam(hinst, MAKEINTRESOURCE(IDD_PROVIDER_PASSPHRASE),
+                                NULL, PassphraseProc, (LPARAM) &pps);
+        modal_passphrase_hwnd = NULL;
+
+        if (!dlgret) {
+            burnstr(pps.passphrase);
+            goto done;             /* operation cancelled */
+        }
+
+        sfree(err);
+
+        assert(pps.passphrase != NULL);
+
+        ret = pageant_add_providerfile(filename, pps.passphrase, &err);
+        burnstr(pps.passphrase);
+
+        if (ret == PAGEANT_ACTION_OK) {
+            goto done;
+        } else if (ret == PAGEANT_ACTION_FAILURE) {
+            goto error;
+        }
+    }
+
+    /* now cleanup and handle errors */
+    error:
+    message_box(traywindow, err, APPNAME, MB_OK | MB_ICONERROR,
+            false, HELPCTXID(errors_cantloadkey));
+
+    done:
+    sfree(err);
+    return;
+}
+
+/*
+ * Prompt for a pkcs11 provider to add, and add it.
+ */
+static void prompt_add_provider(void)
+{
+    OPENFILENAME of;
+    char *filelist = snewn(8192, char);
+
+    if (!providerpath) providerpath = filereq_new();
+    memset(&of, 0, sizeof(of));
+    of.hwndOwner = traywindow;
+    of.lpstrFilter = FILTER_PROVIDER_FILES_C;
+    of.lpstrCustomFilter = NULL;
+    of.nFilterIndex = 1;
+    of.lpstrFile = filelist;
+    *filelist = '\0';
+    of.nMaxFile = 8192;
+    of.lpstrFileTitle = NULL;
+    of.lpstrTitle = "Select PKCS11 Provider Library";
+    of.Flags = OFN_ALLOWMULTISELECT | OFN_EXPLORER;
+    if (request_file(providerpath, &of, true, false)) {
+        if(strlen(filelist) > of.nFileOffset) {
+            /* Only one filename returned? */
+            Filename *fn = filename_from_str(filelist);
+            win_add_provider(fn);
+            filename_free(fn);
+        } else {
+            /* we are returned a bunch of strings, end to
+             * end. first string is the directory, the
+             * rest the filenames. terminated with an
+             * empty string.
+             */
+            char *dir = filelist;
+            char *filewalker = filelist + strlen(dir) + 1;
+            while (*filewalker != '\0') {
+                char *filename = dupcat(dir, "\\", filewalker, NULL);
+                Filename *fn = filename_from_str(filename);
+                win_add_provider(fn);
+                filename_free(fn);
+                sfree(filename);
+                filewalker += strlen(filewalker) + 1;
+            }
+        }
+
+        keylist_update();
+    }
+    sfree(filelist);
+}
+
 
 /*
  * Dialog-box function for the key list box.
@@ -804,7 +1020,7 @@ static INT_PTR CALLBACK KeyListProc(HWND hwnd, UINT msg,
 
                 /* do the same for the rsa keys */
                 for (i = rCount - 1; (itemNum >= 0) && (i >= 0); i--) {
-                    if (selectedArray[itemNum] == i) {
+                    if(selectedArray[itemNum] == i) {
                         switch (LOWORD(wParam)) {
                           case IDC_KEYLIST_REMOVE:
                             pageant_delete_nth_ssh1_key(i);
@@ -837,6 +1053,74 @@ static INT_PTR CALLBACK KeyListProc(HWND hwnd, UINT msg,
                 }
             }
             return 0;
+          case IDC_KEYLIST_ADDCERT:
+              if (HIWORD(wParam) == BN_CLICKED ||
+                  HIWORD(wParam) == BN_DOUBLECLICKED) {
+                  if (modal_passphrase_hwnd) {
+                      MessageBeep(MB_ICONERROR);
+                      SetForegroundWindow(modal_passphrase_hwnd);
+                      break;
+                  }
+                  prompt_add_certfile();
+              }
+              return 0;
+          case IDC_KEYLIST_ADD_PROVIDER:
+              if (HIWORD(wParam) == BN_CLICKED ||
+                  HIWORD(wParam) == BN_DOUBLECLICKED) {
+                  if (modal_passphrase_hwnd) {
+                      MessageBeep(MB_ICONERROR);
+                      SetForegroundWindow(modal_passphrase_hwnd);
+                      break;
+                  }
+                  prompt_add_provider();
+              }
+              return 0;
+          case IDC_KEYLIST_REMOVE_PROVIDER:
+          case IDC_KEYLIST_REFRESH_PROVIDER:
+              if (HIWORD(wParam) == BN_CLICKED ||
+                  HIWORD(wParam) == BN_DOUBLECLICKED) {
+                  int i;
+                  int *selectedArray;
+
+                  int numSelected = SendDlgItemMessage(
+                          hwnd, IDC_KEYLIST_PROVIDER_LISTBOX, LB_GETSELCOUNT, 0, 0);
+
+                  /* none selected? that was silly */
+                  if (numSelected == 0) {
+                      MessageBeep(0);
+                      break;
+                  }
+
+                  /* get item indices in an array */
+                  selectedArray = snewn(numSelected, int);
+                  SendDlgItemMessage(hwnd, IDC_KEYLIST_PROVIDER_LISTBOX, LB_GETSELITEMS,
+                                      numSelected, (WPARAM) selectedArray);
+
+                  for (i = 0; i < numSelected; i++) {
+                      char *retstr = NULL;
+                      int sz = SendDlgItemMessage(hwnd, IDC_KEYLIST_PROVIDER_LISTBOX,
+                              LB_GETTEXTLEN, selectedArray[i], (LPARAM) NULL);
+                      char *name = snewn(sz+1, char);
+                      SendDlgItemMessage(hwnd, IDC_KEYLIST_PROVIDER_LISTBOX,
+                              LB_GETTEXT, selectedArray[i], (LPARAM) name);
+                      switch (LOWORD(wParam)) {
+                      case IDC_KEYLIST_REMOVE_PROVIDER:
+                          pageant_delete_providerfile(name, &retstr);
+                          break;
+                      case IDC_KEYLIST_REFRESH_PROVIDER:
+                          if (pageant_refresh_providerfile(name, &retstr) != PAGEANT_ACTION_OK) {
+                              message_box(traywindow, retstr, APPNAME, MB_OK | MB_ICONERROR,
+                                      false, HELPCTXID(errors_cantloadkey));
+                          }
+                      }
+                      sfree(name);
+                  }
+
+                  sfree(selectedArray);
+                  keylist_update();
+
+              }
+              return 0;
         }
         return 0;
       case WM_HELP: {
@@ -909,10 +1193,10 @@ static void update_sessions(void)
     if (!putty_path)
         return;
 
-    if (ERROR_SUCCESS != RegOpenKey(HKEY_CURRENT_USER, PUTTY_REGKEY, &hkey))
+    if(ERROR_SUCCESS != RegOpenKey(HKEY_CURRENT_USER, PUTTY_REGKEY, &hkey))
         return;
 
-    for (num_entries = GetMenuItemCount(session_menu);
+    for(num_entries = GetMenuItemCount(session_menu);
         num_entries > initial_menuitems_count;
         num_entries--)
         RemoveMenu(session_menu, 0, MF_BYPOSITION);
@@ -921,8 +1205,8 @@ static void update_sessions(void)
     index_menu = 0;
 
     sb = strbuf_new();
-    while (ERROR_SUCCESS == RegEnumKey(hkey, index_key, buf, MAX_PATH)) {
-        if (strcmp(buf, PUTTY_DEFAULT) != 0) {
+    while(ERROR_SUCCESS == RegEnumKey(hkey, index_key, buf, MAX_PATH)) {
+        if(strcmp(buf, PUTTY_DEFAULT) != 0) {
             strbuf_clear(sb);
             unescape_registry_key(buf, sb);
 
@@ -942,7 +1226,7 @@ static void update_sessions(void)
 
     RegCloseKey(hkey);
 
-    if (index_menu == 0) {
+    if(index_menu == 0) {
         mii.cbSize = sizeof(mii);
         mii.fMask = MIIM_TYPE | MIIM_STATE;
         mii.fType = MFT_STRING;
@@ -1311,8 +1595,8 @@ static LRESULT CALLBACK TrayWndProc(HWND hwnd, UINT message,
             if (restrict_putty_acl)
                 strcat(cmdline, "&R");
 
-            if ((INT_PTR)ShellExecute(hwnd, NULL, putty_path, cmdline,
-                                      _T(""), SW_SHOW) <= 32) {
+            if((INT_PTR)ShellExecute(hwnd, NULL, putty_path, cmdline,
+                                     _T(""), SW_SHOW) <= 32) {
                 MessageBox(NULL, "Unable to execute PuTTY!",
                            "Error", MB_OK | MB_ICONERROR);
             }
@@ -1371,7 +1655,7 @@ static LRESULT CALLBACK TrayWndProc(HWND hwnd, UINT message,
             launch_help(hwnd, WINHELP_CTX_pageant_general);
             break;
           default: {
-            if (wParam >= IDM_SESSIONS_BASE && wParam <= IDM_SESSIONS_MAX) {
+            if(wParam >= IDM_SESSIONS_BASE && wParam <= IDM_SESSIONS_MAX) {
                 MENUITEMINFO mii;
                 TCHAR buf[MAX_PATH + 1];
                 TCHAR param[MAX_PATH + 1];
@@ -1386,8 +1670,8 @@ static LRESULT CALLBACK TrayWndProc(HWND hwnd, UINT message,
                     strcat(param, "&R");
                 strcat(param, "@");
                 strcat(param, mii.dwTypeData);
-                if ((INT_PTR)ShellExecute(hwnd, NULL, putty_path, param,
-                                          _T(""), SW_SHOW) <= 32) {
+                if((INT_PTR)ShellExecute(hwnd, NULL, putty_path, param,
+                                         _T(""), SW_SHOW) <= 32) {
                     MessageBox(NULL, "Unable to execute PuTTY!", "Error",
                                MB_OK | MB_ICONERROR);
                 }
@@ -1741,17 +2025,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
                                MB_ICONERROR | MB_OK);
                     return 1;
                 }
-                fputs("IdentityAgent \"", fp);
-                /* Some versions of Windows OpenSSH prefer / to \ as the path
-                 * separator; others don't mind, but as far as we know, no
-                 * version _objects_ to /, so we use it unconditionally. */
-                for (const char *p = pipename; *p; p++) {
-                    char c = *p;
-                    if (c == '\\')
-                        c = '/';
-                    fputc(c, fp);
-                }
-                fputs("\"\n", fp);
+                fprintf(fp, "IdentityAgent %s\n", pipename);
                 fclose(fp);
             }
 
@@ -1845,7 +2119,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
             args = strchr(command, ' ');
         if (args) {
             *args++ = 0;
-            while (*args && isspace((unsigned char)*args)) args++;
+            while(*args && isspace(*args)) args++;
         }
         spawn_cmd(command, args, show);
     }
