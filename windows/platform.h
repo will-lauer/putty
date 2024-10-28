@@ -297,6 +297,32 @@ void write_aclip(HWND hwnd, int clipboard, char *, int);
 #define sk_getxdmdata(socket, lenp) (NULL)
 
 /*
+
+ * File-selector filter strings used in the config box. On Windows,
+ * these strings are of exactly the type needed to go in
+ * `lpstrFilter' in an OPENFILENAME structure.
+ */
+typedef const wchar_t *FILESELECT_FILTER_TYPE;
+#define FILTER_KEY_FILES (L"PuTTY Private Key Files (*.ppk)\0*.ppk\0" \
+                          L"All Files (*.*)\0*\0\0\0")
+#define FILTER_CERT_FILES (L"All Files (*.*)\0*\0\0\0")
+#define FILTER_PROVIDER_FILES (L"PKCS11 Libraries (*.dll)\0*.dll\0\0\0")
+#define FILTER_WAVE_FILES (L"Wave Files (*.wav)\0*.WAV\0"       \
+                           L"All Files (*.*)\0*\0\0\0")
+#define FILTER_DYNLIB_FILES (L"Dynamic Library Files (*.dll)\0*.dll\0" \
+                             L"All Files (*.*)\0*\0\0\0")
+
+/* char-based versions of the above, for outlying uses of file selectors. */
+#define FILTER_KEY_FILES_C ("PuTTY Private Key Files (*.ppk)\0*.ppk\0" \
+                            "All Files (*.*)\0*\0\0\0")
+#define FILTER_CERT_FILES_C ("All Files (*.*)\0*\0\0\0")
+#define FILTER_PROVIDER_FILES_C ("PKCS11 Libraries (*.dll)\0*.dll\0\0\0")
+#define FILTER_WAVE_FILES_C ("Wave Files (*.wav)\0*.WAV\0" \
+                             "All Files (*.*)\0*\0\0\0")
+#define FILTER_DYNLIB_FILES_C ("Dynamic Library Files (*.dll)\0*.dll\0" \
+                               "All Files (*.*)\0*\0\0\0")
+
+/*
  * Exports from network.c.
  */
 /* Report an event notification from WSA*Select */
