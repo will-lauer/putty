@@ -1591,6 +1591,7 @@ static PageantAsyncOp *pageant_make_op(
         pageant_client_log(pc, reqid, "reply: SSH_AGENT_SUCCESS");
         break;
       }
+      case SSH_AGENTC_ADD_SMARTCARD_KEY_CONSTRAINED:
       case SSH2_AGENTC_ADD_SMARTCARD_KEY: {
           /*
            * Add keys from PKCS11 smart card
@@ -1600,20 +1601,20 @@ static PageantAsyncOp *pageant_make_op(
 
           pageant_client_log(pc, reqid, "request: SSH2_AGENTC_ADD_SMARTCARD_KEY");
 
-          Filename* filename = filename_deserialise(msg);
+          ptrlen readerid = get_string(msg);
           pin = get_string(msg);
 
           if (get_err(msg)) {
               fail("unable to decode request");
-              filename_free(filename);
               break;
           }
 
           if (!pc->suppress_logging) {
-              pageant_client_log(pc, reqid, "submitted pkcs11 provider: %s", filename_to_str(filename));
+        	  char* filename = mkstr(readerid);
+              pageant_client_log(pc, reqid, "submitted pkcs11 provider: %s", filename);
+              sfree(filename);
           }
 
-          ptrlen readerid = ptrlen_from_asciz(filename_to_str(filename));
           if (pageant_add_ssh2_pkcs11_library(readerid, pin, &retstr)) {
               pageant_client_log(pc, reqid, "provider added successfully. now adding keys");
 
@@ -1626,7 +1627,6 @@ static PageantAsyncOp *pageant_make_op(
           } else {
               fail(retstr);
           }
-          filename_free(filename);
 
           break;
       }
@@ -3222,7 +3222,7 @@ int pageant_add_providerfile(Filename* filename, const char* passphrase,
 
     PageantClientOp *pco = pageant_client_op_new();
     put_byte(pco, SSH2_AGENTC_ADD_SMARTCARD_KEY);
-    filename_serialise(BinarySink_UPCAST(pco), filename);
+    put_stringz(BinarySink_UPCAST(pco), filename_to_str(filename));
     put_stringz(pco, passphrase ? passphrase : "");
     unsigned reply = pageant_client_op_query(pco);
     pageant_client_op_free(pco);
