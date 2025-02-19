@@ -112,6 +112,9 @@ static bool do_filereq_a(
             "All Files (*.*)\0*\0\0\0";
         of.lpstrDefExt = ".wav";
         break;
+      case FILTER_CERT_FILES:
+        of.lpstrFilter = "All Files (*.*)\0*\0\0\0";
+        break;
     }
     of.nFilterIndex = 1;
 

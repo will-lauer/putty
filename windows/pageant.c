@@ -55,16 +55,10 @@ static bool restrict_putty_acl = false;
 static filereq_saved_dir *keypath = NULL;
 
 /* CWD for "add cert" file requester. */
-static filereq *certpath = NULL;
+static filereq_saved_dir *certpath = NULL;
 
 /* CWD for "add provider" file requester. */
-static filereq *providerpath = NULL;
-
-/* CWD for "add cert" file requester. */
-static filereq *certpath = NULL;
-
-/* CWD for "add provider" file requester. */
-static filereq *providerpath = NULL;
+static filereq_saved_dir *providerpath = NULL;
 
 /* From MSDN: In the WM_SYSCOMMAND message, the four low-order bits of
  * wParam are used by Windows, and should be masked off, so we shouldn't
@@ -633,48 +627,21 @@ static void win_add_certfile(Filename *filename)
  */
 static void prompt_add_certfile(void)
 {
-    OPENFILENAME of;
-    char *filelist = snewn(8192, char);
+    if (!certpath)
+        certpath = filereq_saved_dir_new();
 
-    if (!certpath) certpath = filereq_new();
-    memset(&of, 0, sizeof(of));
-    of.hwndOwner = traywindow;
-    of.lpstrFilter = FILTER_CERT_FILES_C;
-    of.lpstrCustomFilter = NULL;
-    of.nFilterIndex = 1;
-    of.lpstrFile = filelist;
-    *filelist = '\0';
-    of.nMaxFile = 8192;
-    of.lpstrFileTitle = NULL;
-    of.lpstrTitle = "Select Certificate File";
-    of.Flags = OFN_ALLOWMULTISELECT | OFN_EXPLORER;
-    if (request_file(certpath, &of, true, false)) {
-        if(strlen(filelist) > of.nFileOffset) {
-            /* Only one filename returned? */
-            Filename *fn = filename_from_str(filelist);
-            win_add_certfile(fn);
-            filename_free(fn);
-        } else {
-            /* we are returned a bunch of strings, end to
-             * end. first string is the directory, the
-             * rest the filenames. terminated with an
-             * empty string.
-             */
-            char *dir = filelist;
-            char *filewalker = filelist + strlen(dir) + 1;
-            while (*filewalker != '\0') {
-                char *filename = dupcat(dir, "\\", filewalker, NULL);
-                Filename *fn = filename_from_str(filename);
-                win_add_certfile(fn);
-                filename_free(fn);
-                sfree(filename);
-                filewalker += strlen(filewalker) + 1;
-            }
-        }
+    struct request_multi_file_return * rmf = request_multi_file(
+            traywindow, "Select Certificate File", NULL, false,
+            certpath, true, FILTER_CERT_FILES);
+
+    if (rmf) {
+        for (size_t i = 0; i < rmf->nfilenames; i++)
+            win_add_certfile(rmf->filenames[i]);
+        request_multi_file_free(rmf);
 
         keylist_update();
+
     }
-    sfree(filelist);
 }
 
 
@@ -737,225 +704,21 @@ static void win_add_provider(Filename* filename)
  */
 static void prompt_add_provider(void)
 {
-    OPENFILENAME of;
-    char *filelist = snewn(8192, char);
+    if (!providerpath)
+        providerpath = filereq_saved_dir_new();
 
-    if (!providerpath) providerpath = filereq_new();
-    memset(&of, 0, sizeof(of));
-    of.hwndOwner = traywindow;
-    of.lpstrFilter = FILTER_PROVIDER_FILES_C;
-    of.lpstrCustomFilter = NULL;
-    of.nFilterIndex = 1;
-    of.lpstrFile = filelist;
-    *filelist = '\0';
-    of.nMaxFile = 8192;
-    of.lpstrFileTitle = NULL;
-    of.lpstrTitle = "Select PKCS11 Provider Library";
-    of.Flags = OFN_ALLOWMULTISELECT | OFN_EXPLORER;
-    if (request_file(providerpath, &of, true, false)) {
-        if(strlen(filelist) > of.nFileOffset) {
-            /* Only one filename returned? */
-            Filename *fn = filename_from_str(filelist);
-            win_add_provider(fn);
-            filename_free(fn);
-        } else {
-            /* we are returned a bunch of strings, end to
-             * end. first string is the directory, the
-             * rest the filenames. terminated with an
-             * empty string.
-             */
-            char *dir = filelist;
-            char *filewalker = filelist + strlen(dir) + 1;
-            while (*filewalker != '\0') {
-                char *filename = dupcat(dir, "\\", filewalker, NULL);
-                Filename *fn = filename_from_str(filename);
-                win_add_provider(fn);
-                filename_free(fn);
-                sfree(filename);
-                filewalker += strlen(filewalker) + 1;
-            }
-        }
+    struct request_multi_file_return *rmf = request_multi_file(
+        traywindow, "Select PKCS11 Provider Library", NULL, false,
+        providerpath, true, FILTER_DYNLIB_FILES);
+
+    if (rmf) {
+        for (size_t i = 0; i < rmf->nfilenames; i++)
+            win_add_provider(rmf->filenames[i]);
+        request_multi_file_free(rmf);
 
         keylist_update();
     }
-    sfree(filelist);
 }
-
-
-static void win_add_certfile(Filename *filename)
-{
-    char *err;
-    int ret;
-
-    ret = pageant_add_certfile(filename, &err);
-    if (ret == PAGEANT_ACTION_OK) {
-        goto done;
-    } else if (ret == PAGEANT_ACTION_FAILURE) {
-        goto error;
-    }
-
-    error:
-    message_box(traywindow, err, APPNAME, MB_OK | MB_ICONERROR,
-    		false, HELPCTXID(errors_cantloadkey));
-
-    done:
-    sfree(err);
-    return;
-}
-
-/*
- * Prompt for a cert file to add, and add it.
- */
-static void prompt_add_certfile(void)
-{
-    OPENFILENAME of;
-    char *filelist = snewn(8192, char);
-
-    if (!certpath) certpath = filereq_new();
-    memset(&of, 0, sizeof(of));
-    of.hwndOwner = traywindow;
-    of.lpstrFilter = FILTER_CERT_FILES_C;
-    of.lpstrCustomFilter = NULL;
-    of.nFilterIndex = 1;
-    of.lpstrFile = filelist;
-    *filelist = '\0';
-    of.nMaxFile = 8192;
-    of.lpstrFileTitle = NULL;
-    of.lpstrTitle = "Select Certificate File";
-    of.Flags = OFN_ALLOWMULTISELECT | OFN_EXPLORER;
-    if (request_file(certpath, &of, true, false)) {
-        if(strlen(filelist) > of.nFileOffset) {
-            /* Only one filename returned? */
-            Filename *fn = filename_from_str(filelist);
-            win_add_certfile(fn);
-            filename_free(fn);
-        } else {
-            /* we are returned a bunch of strings, end to
-             * end. first string is the directory, the
-             * rest the filenames. terminated with an
-             * empty string.
-             */
-            char *dir = filelist;
-            char *filewalker = filelist + strlen(dir) + 1;
-            while (*filewalker != '\0') {
-                char *filename = dupcat(dir, "\\", filewalker, NULL);
-                Filename *fn = filename_from_str(filename);
-                win_add_certfile(fn);
-                filename_free(fn);
-                sfree(filename);
-                filewalker += strlen(filewalker) + 1;
-            }
-        }
-
-        keylist_update();
-    }
-    sfree(filelist);
-}
-
-
-
-static void win_add_provider(Filename* filename)
-{
-    char *err;
-    int ret;
-
-    ret = pageant_add_providerfile(filename, NULL, &err);
-    if (ret == PAGEANT_ACTION_OK) {
-        goto done;
-    } else if (ret == PAGEANT_ACTION_FAILURE) {
-        goto error;
-    }
-
-    /* if we get here, we need a pin/passphrase */
-    while (1) {
-        INT_PTR dlgret;
-        struct PassphraseProcStruct pps;
-        pps.modal = true;
-        pps.dlgid = NULL;
-        pps.passphrase = NULL;
-        pps.comment = err;
-        dlgret = DialogBoxParam(hinst, MAKEINTRESOURCE(IDD_PROVIDER_PASSPHRASE),
-                                NULL, PassphraseProc, (LPARAM) &pps);
-        modal_passphrase_hwnd = NULL;
-
-        if (!dlgret) {
-            burnstr(pps.passphrase);
-            goto done;             /* operation cancelled */
-        }
-
-        sfree(err);
-
-        assert(pps.passphrase != NULL);
-
-        ret = pageant_add_providerfile(filename, pps.passphrase, &err);
-        burnstr(pps.passphrase);
-
-        if (ret == PAGEANT_ACTION_OK) {
-            goto done;
-        } else if (ret == PAGEANT_ACTION_FAILURE) {
-            goto error;
-        }
-    }
-
-    /* now cleanup and handle errors */
-    error:
-    message_box(traywindow, err, APPNAME, MB_OK | MB_ICONERROR,
-            false, HELPCTXID(errors_cantloadkey));
-
-    done:
-    sfree(err);
-    return;
-}
-
-/*
- * Prompt for a pkcs11 provider to add, and add it.
- */
-static void prompt_add_provider(void)
-{
-    OPENFILENAME of;
-    char *filelist = snewn(8192, char);
-
-    if (!providerpath) providerpath = filereq_new();
-    memset(&of, 0, sizeof(of));
-    of.hwndOwner = traywindow;
-    of.lpstrFilter = FILTER_PROVIDER_FILES_C;
-    of.lpstrCustomFilter = NULL;
-    of.nFilterIndex = 1;
-    of.lpstrFile = filelist;
-    *filelist = '\0';
-    of.nMaxFile = 8192;
-    of.lpstrFileTitle = NULL;
-    of.lpstrTitle = "Select PKCS11 Provider Library";
-    of.Flags = OFN_ALLOWMULTISELECT | OFN_EXPLORER;
-    if (request_file(providerpath, &of, true, false)) {
-        if(strlen(filelist) > of.nFileOffset) {
-            /* Only one filename returned? */
-            Filename *fn = filename_from_str(filelist);
-            win_add_provider(fn);
-            filename_free(fn);
-        } else {
-            /* we are returned a bunch of strings, end to
-             * end. first string is the directory, the
-             * rest the filenames. terminated with an
-             * empty string.
-             */
-            char *dir = filelist;
-            char *filewalker = filelist + strlen(dir) + 1;
-            while (*filewalker != '\0') {
-                char *filename = dupcat(dir, "\\", filewalker, NULL);
-                Filename *fn = filename_from_str(filename);
-                win_add_provider(fn);
-                filename_free(fn);
-                sfree(filename);
-                filewalker += strlen(filewalker) + 1;
-            }
-        }
-
-        keylist_update();
-    }
-    sfree(filelist);
-}
-
 
 /*
  * Dialog-box function for the key list box.

@@ -17,6 +17,7 @@ typedef enum {
     FILTER_KEY_FILES, /* .ppk */
     FILTER_DYNLIB_FILES, /* whatever the host platform uses as shared libs */
     FILTER_SOUND_FILES, /* whatever kind of sound file we can use as bell */
+    FILTER_CERT_FILES, /* openssl certificate files */
 } FilereqFilter;
 
 #include "defs.h"
